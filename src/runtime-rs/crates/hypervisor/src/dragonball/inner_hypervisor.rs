@@ -9,11 +9,12 @@ use std::{
     iter::FromIterator,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
+use kata_types::capabilities::Capabilities;
 
 use super::inner::DragonballInner;
 use crate::{utils, VcpuThreadIds, VmmState};
-use persist::KATA_PATH;
+use shim_interface::KATA_PATH;
 const DEFAULT_HYBRID_VSOCK_NAME: &str = "kata.hvsock";
 
 fn get_vsock_path(root: &str) -> String {
@@ -31,7 +32,7 @@ impl DragonballInner {
 
         // prepare vsock
         let uds_path = [&self.jailer_root, DEFAULT_HYBRID_VSOCK_NAME].join("/");
-        let d = crate::device::Device::Vsock(crate::device::VsockConfig {
+        let d = crate::device::Device::HybridVsock(crate::device::HybridVsockConfig {
             id: format!("vsock-{}", &self.id),
             guest_cid: 3,
             uds_path,
@@ -97,7 +98,7 @@ impl DragonballInner {
         };
 
         for tid in self.vmm_instance.get_vcpu_tids() {
-            vcpu_thread_ids.vcpus.insert(tid.0 as u32, tid.1 as u32);
+            vcpu_thread_ids.vcpus.insert(tid.0 as u32, tid.1);
         }
         info!(sl!(), "get thread ids {:?}", vcpu_thread_ids);
         Ok(vcpu_thread_ids)
@@ -132,5 +133,9 @@ impl DragonballInner {
 
     pub(crate) async fn get_jailer_root(&self) -> Result<String> {
         Ok(self.jailer_root.clone())
+    }
+
+    pub(crate) async fn capabilities(&self) -> Result<Capabilities> {
+        Ok(self.capabilities.clone())
     }
 }

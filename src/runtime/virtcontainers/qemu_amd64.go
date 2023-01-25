@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 // Copyright (c) 2018 Intel Corporation
 //
@@ -10,6 +9,7 @@ package virtcontainers
 
 import (
 	"context"
+	"crypto/sha256"
 	b64 "encoding/base64"
 	"fmt"
 	"log"
@@ -32,11 +32,15 @@ type qemuAmd64 struct {
 	// inherit from qemuArchBase, overwrite methods if needed
 	qemuArchBase
 
+	snpGuest bool
+
 	vmFactory bool
 
 	devLoadersCount uint32
 
 	sgxEPCSize int64
+
+	numVCPUs uint32
 }
 
 const (
@@ -44,7 +48,7 @@ const (
 
 	defaultQemuMachineType = QemuQ35
 
-	defaultQemuMachineOptions = "accel=kvm,kernel_irqchip=on"
+	defaultQemuMachineOptions = "accel=kvm"
 
 	splitIrqChipMachineOptions = "accel=kvm,kernel_irqchip=split"
 
@@ -57,6 +61,9 @@ const (
 	sevAttestationGodhName = "godh.b64"
 
 	sevAttestationSessionFileName = "session_file.b64"
+
+	// For more info, see AMD SEV API document 55766
+	sevPolicyBitSevEs = 0x4
 )
 
 var kernelParams = []Param{
@@ -138,6 +145,8 @@ func newQemuArch(config HypervisorConfig) (qemuArch, error) {
 			legacySerial:         config.LegacySerial,
 		},
 		vmFactory: factory,
+		snpGuest:  config.SevSnpGuest,
+		numVCPUs:  config.NumVCPUs,
 	}
 
 	if config.ConfidentialGuest {
@@ -185,6 +194,21 @@ func (q *qemuAmd64) bridges(number uint32) {
 	q.Bridges = genericBridges(number, q.qemuMachine.Type)
 }
 
+func (q *qemuAmd64) cpuModel() string {
+	var err error
+	cpuModel := defaultCPUModel
+
+	// Temporary until QEMU cpu model 'host' supports AMD SEV-SNP
+	protection, err := availableGuestProtection()
+	if err == nil {
+		if protection == snpProtection && q.snpGuest {
+			cpuModel = "EPYC-v4"
+		}
+	}
+
+	return cpuModel
+}
+
 func (q *qemuAmd64) memoryTopology(memoryMb, hostMemoryMb uint64, slots uint8) govmmQemu.Memory {
 	return genericMemoryTopology(memoryMb, hostMemoryMb, slots, q.memoryOffset)
 }
@@ -213,6 +237,11 @@ func (q *qemuAmd64) enableProtection() error {
 	if err != nil {
 		return err
 	}
+	// Configure SNP only if specified in config
+	if q.protection == snpProtection && !q.snpGuest {
+		q.protection = sevProtection
+	}
+
 	logger := hvLogger.WithFields(logrus.Fields{
 		"subsystem":               "qemuAmd64",
 		"machine":                 q.qemuMachine,
@@ -234,6 +263,13 @@ func (q *qemuAmd64) enableProtection() error {
 		}
 		q.qemuMachine.Options += "confidential-guest-support=sev"
 		logger.Info("Enabling SEV guest protection")
+		return nil
+	case snpProtection:
+		if q.qemuMachine.Options != "" {
+			q.qemuMachine.Options += ","
+		}
+		q.qemuMachine.Options += "confidential-guest-support=snp"
+		logger.Info("Enabling SNP guest protection")
 		return nil
 
 	// TODO: Add support for other x86_64 technologies
@@ -268,6 +304,16 @@ func (q *qemuAmd64) appendProtectionDevice(devices []govmmQemu.Device, firmware,
 				Debug:          false,
 				File:           firmware,
 				FirmwareVolume: firmwareVolume,
+			}), "", nil
+	case snpProtection:
+		return append(devices,
+			govmmQemu.Object{
+				Type:            govmmQemu.SNPGuest,
+				ID:              "snp",
+				Debug:           false,
+				File:            firmware,
+				CBitPos:         cpuid.AMDMemEncrypt.CBitPosition,
+				ReducedPhysBits: 1,
 			}), "", nil
 	case noneProtection:
 		return devices, firmware, nil
@@ -309,6 +355,7 @@ func (q *qemuAmd64) appendSEVObject(devices []govmmQemu.Device, firmware, firmwa
 				CBitPos:         cpuid.AMDMemEncrypt.CBitPosition,
 				ReducedPhysBits: cpuid.AMDMemEncrypt.PhysAddrReduction,
 				SevPolicy:       config.Policy,
+				SevKernelHashes: true,
 			}), "", nil
 	}
 }
@@ -369,6 +416,34 @@ func (q *qemuAmd64) setupSEVGuestPreAttestation(ctx context.Context, config sev.
 	return attestationId, nil
 }
 
+func getCPUSig(cpuModel string) sev.VCPUSig {
+	// This is for the special case for SNP (see cpuModel()).
+	if cpuModel == "EPYC-v4" {
+		return sev.SigEpycV4
+	}
+	return sev.NewVCPUSig(cpuid.DisplayFamily, cpuid.DisplayModel, cpuid.SteppingId)
+}
+
+func calculateGuestLaunchDigest(config sev.GuestPreAttestationConfig, numVCPUs int, cpuModel string) ([sha256.Size]byte, error) {
+	if config.Policy&sevPolicyBitSevEs != 0 {
+		// SEV-ES guest
+		return sev.CalculateSEVESLaunchDigest(
+			numVCPUs,
+			getCPUSig(cpuModel),
+			config.FwPath,
+			config.KernelPath,
+			config.InitrdPath,
+			config.KernelParameters)
+	}
+
+	// SEV guest
+	return sev.CalculateLaunchDigest(
+		config.FwPath,
+		config.KernelPath,
+		config.InitrdPath,
+		config.KernelParameters)
+}
+
 // wait for prelaunch attestation to complete
 func (q *qemuAmd64) sevGuestPreAttestation(ctx context.Context,
 	qmp *govmmQemu.QMP, config sev.GuestPreAttestationConfig) error {
@@ -407,9 +482,9 @@ func (q *qemuAmd64) sevGuestPreAttestation(ctx context.Context,
 
 	secrets := []*pb.RequestDetails{&requestDetails}
 
-	launchDigest, err := sev.CalculateLaunchDigest(config.FwPath, config.KernelPath, config.InitrdPath, config.KernelParameters)
+	launchDigest, err := calculateGuestLaunchDigest(config, int(q.numVCPUs), q.cpuModel())
 	if err != nil {
-		return fmt.Errorf("Could not calculate SEV launch digest: %v", err)
+		return fmt.Errorf("Could not calculate SEV/SEV-ES launch digest: %v", err)
 	}
 	launchDigestBase64 := b64.StdEncoding.EncodeToString(launchDigest[:])
 

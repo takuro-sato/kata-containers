@@ -4,12 +4,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-use std::sync::Arc;
-
+use agent::Storage;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use kata_sys_util::mount::Mounter;
 use kata_types::mount::Mount;
+use std::sync::Arc;
 
 use super::{Rootfs, ROOTFS};
 use crate::share_fs::{ShareFsMount, ShareFsRootfsConfig};
@@ -23,20 +23,25 @@ impl ShareFsRootfs {
         share_fs_mount: &Arc<dyn ShareFsMount>,
         cid: &str,
         bundle_path: &str,
-        rootfs: &Mount,
+        rootfs: Option<&Mount>,
     ) -> Result<Self> {
-        let bundle_rootfs = format!("{}/{}", bundle_path, ROOTFS);
-        rootfs.mount(&bundle_rootfs).context(format!(
-            "mount rootfs from {:?} to {}",
-            &rootfs, &bundle_rootfs
-        ))?;
-
+        let bundle_rootfs = if let Some(rootfs) = rootfs {
+            let bundle_rootfs = format!("{}/{}", bundle_path, ROOTFS);
+            rootfs.mount(&bundle_rootfs).context(format!(
+                "mount rootfs from {:?} to {}",
+                &rootfs, &bundle_rootfs
+            ))?;
+            bundle_rootfs
+        } else {
+            bundle_path.to_string()
+        };
         let mount_result = share_fs_mount
             .share_rootfs(ShareFsRootfsConfig {
                 cid: cid.to_string(),
                 source: bundle_rootfs.to_string(),
                 target: ROOTFS.to_string(),
                 readonly: false,
+                is_rafs: false,
             })
             .await
             .context("share rootfs")?;
@@ -55,5 +60,9 @@ impl Rootfs for ShareFsRootfs {
 
     async fn get_rootfs_mount(&self) -> Result<Vec<oci::Mount>> {
         todo!()
+    }
+
+    async fn get_storage(&self) -> Option<Storage> {
+        None
     }
 }

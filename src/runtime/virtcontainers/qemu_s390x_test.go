@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 // Copyright (c) 2018 IBM
 //
@@ -132,6 +131,12 @@ func TestQemuS390xAppendProtectionDevice(t *testing.T) {
 
 	// SEV protection
 	s390x.(*qemuS390x).protection = sevProtection
+	devices, bios, err = s390x.appendProtectionDevice(devices, firmware, "")
+	assert.Error(err)
+	assert.Empty(bios)
+
+	// SNP protection
+	s390x.(*qemuS390x).protection = snpProtection
 	devices, bios, err = s390x.appendProtectionDevice(devices, firmware, "")
 	assert.Error(err)
 	assert.Empty(bios)

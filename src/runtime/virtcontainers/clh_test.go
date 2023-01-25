@@ -1,5 +1,4 @@
 //go:build linux
-// +build linux
 
 // Copyright (c) 2019 Ericsson Eurolab Deutschland G.m.b.H.
 //
@@ -10,7 +9,6 @@ package virtcontainers
 
 import (
 	"context"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -104,7 +102,7 @@ func (c *clhClientMock) VmResizePut(ctx context.Context, vmResize chclient.VmRes
 }
 
 //nolint:golint
-func (c *clhClientMock) VmAddDevicePut(ctx context.Context, vmAddDevice chclient.VmAddDevice) (chclient.PciDeviceInfo, *http.Response, error) {
+func (c *clhClientMock) VmAddDevicePut(ctx context.Context, deviceConfig chclient.DeviceConfig) (chclient.PciDeviceInfo, *http.Response, error) {
 	return chclient.PciDeviceInfo{}, nil, nil
 }
 
@@ -134,7 +132,7 @@ func TestCloudHypervisorAddNetCheckNetConfigListValues(t *testing.T) {
 
 	macTest := "00:00:00:00:00"
 
-	file, err := ioutil.TempFile("", "netFd")
+	file, err := os.CreateTemp("", "netFd")
 	assert.Nil(err)
 	defer os.Remove(file.Name())
 
@@ -172,7 +170,7 @@ func TestCloudHypervisorAddNetCheckEnpointTypes(t *testing.T) {
 
 	macTest := "00:00:00:00:00"
 
-	file, err := ioutil.TempFile("", "netFd")
+	file, err := os.CreateTemp("", "netFd")
 	assert.Nil(err)
 	defer os.Remove(file.Name())
 
@@ -214,7 +212,7 @@ func TestCloudHypervisorAddNetCheckEnpointTypes(t *testing.T) {
 func TestCloudHypervisorNetRateLimiter(t *testing.T) {
 	assert := assert.New(t)
 
-	file, err := ioutil.TempFile("", "netFd")
+	file, err := os.CreateTemp("", "netFd")
 	assert.Nil(err)
 	defer os.Remove(file.Name())
 

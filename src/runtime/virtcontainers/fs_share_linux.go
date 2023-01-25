@@ -390,7 +390,7 @@ func (f *FilesystemShare) shareRootFilesystemWithNydus(ctx context.Context, c *C
 	}, nil
 }
 
-//func (c *Container) shareRootfs(ctx context.Context) (*grpc.Storage, string, error) {
+// func (c *Container) shareRootfs(ctx context.Context) (*grpc.Storage, string, error) {
 func (f *FilesystemShare) ShareRootFilesystem(ctx context.Context, c *Container) (*SharedFile, error) {
 	rootfsGuestPath := filepath.Join(kataGuestSharedDir(), c.id, c.rootfsSuffix)
 
@@ -436,7 +436,11 @@ func (f *FilesystemShare) ShareRootFilesystem(ctx context.Context, c *Container)
 			rootfsStorage.Source = blockDrive.DevNo
 		case f.sandbox.config.HypervisorConfig.BlockDeviceDriver == config.VirtioBlock:
 			rootfsStorage.Driver = kataBlkDevType
-			rootfsStorage.Source = blockDrive.PCIPath.String()
+			if f.sandbox.config.HypervisorType == AcrnHypervisor {
+				rootfsStorage.Source = blockDrive.VirtPath
+			} else {
+				rootfsStorage.Source = blockDrive.PCIPath.String()
+			}
 		case f.sandbox.config.HypervisorConfig.BlockDeviceDriver == config.VirtioSCSI:
 			rootfsStorage.Driver = kataSCSIDevType
 			rootfsStorage.Source = blockDrive.SCSIAddr

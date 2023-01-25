@@ -31,6 +31,7 @@ readonly default_kernel_config_dir="${script_dir}/configs"
 # Default path to search for kernel config fragments
 readonly default_config_frags_dir="${script_dir}/configs/fragments"
 readonly default_config_whitelist="${script_dir}/configs/fragments/whitelist.conf"
+readonly default_initramfs="${script_dir}/initramfs.cpio.gz"
 # GPU vendor
 readonly GV_INTEL="intel"
 readonly GV_NVIDIA="nvidia"
@@ -43,7 +44,7 @@ build_type=""
 force_setup_generate_config="false"
 #GPU kernel support
 gpu_vendor=""
-#Confidential guest type 
+#Confidential guest type
 conf_guest=""
 #
 patches_path=""
@@ -62,6 +63,7 @@ PREFIX="${PREFIX:-/usr}"
 #Kernel URL
 kernel_url=""
 
+KATA_BUILD_CC=${KATA_BUILD_CC:-no}
 packaging_scripts_dir="${script_dir}/../scripts"
 source "${packaging_scripts_dir}/lib.sh"
 
@@ -101,7 +103,7 @@ Options:
 	-t <hypervisor>	: Hypervisor_target.
 	-u <url>	: Kernel URL to be used to download the kernel tarball.
 	-v <version>	: Kernel version to use if kernel path not provided.
-	-x <type>	: Confidential guest protection type, such as sev and tdx
+	-x <type>	: Confidential guest protection type, such as sev, snp and tdx
 EOF
 	exit "$exit_code"
 }
@@ -134,7 +136,7 @@ get_tee_kernel() {
 	# different name, such as linux-${version}.tar.gz or simply
 	# ${version}.tar.gz.  Let's try both before failing.
 	curl --fail -L "${kernel_url}/linux-${kernel_tarball}" -o ${kernel_tarball} || curl --fail -OL "${kernel_url}/${kernel_tarball}"
-	
+
 	mkdir -p ${kernel_path}
 	tar --strip-components=1 -xf ${kernel_tarball} -C ${kernel_path}
 }
@@ -157,12 +159,12 @@ get_kernel() {
 		major_version=$(echo "${version}" | cut -d. -f1)
 		kernel_tarball="linux-${version}.tar.xz"
 
-                if [ ! -f sha256sums.asc ] || ! grep -q "${kernel_tarball}" sha256sums.asc; then
-                        shasum_url="https://cdn.kernel.org/pub/linux/kernel/v${major_version}.x/sha256sums.asc"
-                        info "Download kernel checksum file: sha256sums.asc from ${shasum_url}"
-                        curl --fail -OL "${shasum_url}"
-                fi
-                grep "${kernel_tarball}" sha256sums.asc >"${kernel_tarball}.sha256"
+		if [ ! -f sha256sums.asc ] || ! grep -q "${kernel_tarball}" sha256sums.asc; then
+			shasum_url="https://cdn.kernel.org/pub/linux/kernel/v${major_version}.x/sha256sums.asc"
+			info "Download kernel checksum file: sha256sums.asc from ${shasum_url}"
+			curl --fail -OL "${shasum_url}"
+		fi
+		grep "${kernel_tarball}" sha256sums.asc >"${kernel_tarball}.sha256"
 
 		if [ -f "${kernel_tarball}" ] && ! sha256sum -c "${kernel_tarball}.sha256"; then
 			info "invalid kernel tarball ${kernel_tarball} removing "
@@ -243,11 +245,19 @@ get_kernel_frag_path() {
 		all_configs="${all_configs} ${gpu_configs}"
 	fi
 
-	if [[ "${conf_guest}" != "" ]];then
+	if [ "${KATA_BUILD_CC}" == "yes" ]; then
 		info "Enabling config for confidential guest trust storage protection"
 		local cryptsetup_configs="$(ls ${common_path}/confidential_containers/cryptsetup.conf)"
 		all_configs="${all_configs} ${cryptsetup_configs}"
 
+		if [ -f "${default_initramfs}" ]; then
+			info "Enabling config for confidential guest measured boot"
+			local initramfs_configs="$(ls ${common_path}/confidential_containers/initramfs.conf)"
+			all_configs="${all_configs} ${initramfs_configs}"
+		fi
+	fi
+
+	if [[ "${conf_guest}" != "" ]];then
 		info "Enabling config for '${conf_guest}' confidential guest protection"
 		local conf_configs="$(ls ${arch_path}/${conf_guest}/*.conf)"
 		all_configs="${all_configs} ${conf_configs}"
@@ -380,6 +390,11 @@ setup_kernel() {
 	[ -n "${hypervisor_target}" ] || hypervisor_target="kvm"
 	[ -n "${kernel_config_path}" ] || kernel_config_path=$(get_default_kernel_config "${kernel_version}" "${hypervisor_target}" "${arch_target}" "${kernel_path}")
 
+	if [ "${KATA_BUILD_CC}" == "yes" ] && [ -f "${default_initramfs}" ]; then
+		info "Copying initramfs from: ${default_initramfs}"
+		cp "${default_initramfs}" ./
+	fi
+
 	info "Copying config file from: ${kernel_config_path}"
 	cp "${kernel_config_path}" ./.config
 	make oldconfig
@@ -461,7 +476,7 @@ install_kata() {
 }
 
 main() {
-	while getopts "a:b:c:deEfg:hk:p:t:u:v:x:" opt; do	
+	while getopts "a:b:c:deEfg:hk:p:t:u:v:x:" opt; do
 		case "$opt" in
 			a)
 				arch_target="${OPTARG}"
@@ -504,7 +519,7 @@ main() {
 			t)
 				hypervisor_target="${OPTARG}"
 				;;
-			u)	
+			u)
 				kernel_url="${OPTARG}"
 				;;
 			v)
@@ -513,7 +528,7 @@ main() {
 			x)
 				conf_guest="${OPTARG}"
 				case "$conf_guest" in
-					sev|tdx) ;;
+					sev|snp|tdx) ;;
 					*) die "Confidential guest type '$conf_guest' not supported" ;;
 				esac
 				;;
@@ -525,6 +540,16 @@ main() {
 	subcmd="${1:-}"
 
 	[ -z "${subcmd}" ] && usage 1
+
+	if [[ ${build_type} == "experimental" ]] && [[ ${hypervisor_target} == "dragonball" ]]; then
+		build_type="dragonball-experimental"
+		if [ -n "$kernel_version" ];  then
+			kernel_major_version=$(get_major_kernel_version "${kernel_version}")
+			if [[ ${kernel_major_version} != "5.10" ]]; then
+				info "dragonball-experimental kernel patches are only tested on 5.10.x kernel now, other kernel version may cause confliction"	
+			fi
+		fi
+	fi
 
 	# If not kernel version take it from versions.yaml
 	if [ -z "$kernel_version" ]; then
@@ -541,6 +566,8 @@ main() {
 				kernel_version=$(get_from_kata_deps "assets.kernel-experimental.tag")
 			;;
 			esac
+		elif [[ ${build_type} == "dragonball-experimental" ]]; then
+			kernel_version=$(get_from_kata_deps "assets.dragonball-kernel-experimental.version")
 		elif [[ "${conf_guest}" != "" ]]; then
 			#If specifying a tag for kernel_version, must be formatted version-like to avoid unintended parsing issues
 			kernel_version=$(get_from_kata_deps "assets.kernel.${conf_guest}.version" 2>/dev/null || true)

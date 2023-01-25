@@ -47,7 +47,6 @@ use nix::errno::Errno;
 use nix::mount::MsFlags;
 use nix::sys::{stat, statfs};
 use nix::unistd::{self, Pid};
-use rustjail::cgroups::Manager;
 use rustjail::process::ProcessOperations;
 
 use crate::device::{
@@ -92,9 +91,15 @@ const CONFIG_JSON: &str = "config.json";
 const INIT_TRUSTED_STORAGE: &str = "/usr/bin/kata-init-trusted-storage";
 const TRUSTED_STORAGE_DEVICE: &str = "/dev/trusted_store";
 
+/// the iptables seriers binaries could appear either in /sbin
+/// or /usr/sbin, we need to check both of them
+const USR_IPTABLES_SAVE: &str = "/usr/sbin/iptables-save";
 const IPTABLES_SAVE: &str = "/sbin/iptables-save";
+const USR_IPTABLES_RESTORE: &str = "/usr/sbin/iptables-store";
 const IPTABLES_RESTORE: &str = "/sbin/iptables-restore";
+const USR_IP6TABLES_SAVE: &str = "/usr/sbin/ip6tables-save";
 const IP6TABLES_SAVE: &str = "/sbin/ip6tables-save";
+const USR_IP6TABLES_RESTORE: &str = "/usr/sbin/ip6tables-save";
 const IP6TABLES_RESTORE: &str = "/sbin/ip6tables-restore";
 
 const ERR_CANNOT_GET_WRITER: &str = "Cannot get writer";
@@ -149,16 +154,9 @@ pub struct AgentService {
 pub fn verify_cid(id: &str) -> Result<()> {
     let mut chars = id.chars();
 
-    let valid = match chars.next() {
-        Some(first)
-            if first.is_alphanumeric()
+    let valid = matches!(chars.next(), Some(first) if first.is_alphanumeric()
                 && id.len() > 1
-                && chars.all(|c| c.is_alphanumeric() || ['.', '-', '_'].contains(&c)) =>
-        {
-            true
-        }
-        _ => false,
-    };
+                && chars.all(|c| c.is_alphanumeric() || ['.', '-', '_'].contains(&c)));
 
     match valid {
         true => Ok(()),
@@ -172,11 +170,16 @@ fn merge_oci_process(target: &mut oci::Process, source: &oci::Process) {
         target.args.append(&mut source.args.clone());
     }
 
-    if target.cwd.is_empty() && !source.cwd.is_empty() {
+    if target.cwd == "/" && source.cwd != "/" {
         target.cwd = String::from(&source.cwd);
     }
 
-    target.env.append(&mut source.env.clone());
+    for source_env in &source.env {
+        let variable_name: Vec<&str> = source_env.split('=').collect();
+        if !target.env.iter().any(|i| i.contains(variable_name[0])) {
+            target.env.push(source_env.to_string());
+        }
+    }
 }
 
 impl AgentService {
@@ -237,7 +240,7 @@ impl AgentService {
                 );
 
                 Command::new(INIT_TRUSTED_STORAGE)
-                    .args(&[&dev_major_minor, &data_integrity.to_string()])
+                    .args([&dev_major_minor, &data_integrity.to_string()])
                     .output()
                     .expect("Failed to initialize confidential storage");
             }
@@ -338,14 +341,13 @@ impl AgentService {
         }
 
         // start oom event loop
-        if let Some(ref ctr) = ctr.cgroup_manager {
-            let cg_path = ctr.get_cg_path("memory");
 
-            if let Some(cg_path) = cg_path {
-                let rx = notifier::notify_oom(cid.as_str(), cg_path.to_string()).await?;
+        let cg_path = ctr.cgroup_manager.as_ref().get_cgroup_path("memory");
 
-                s.run_oom_event_monitor(rx, cid.clone()).await;
-            }
+        if let Ok(cg_path) = cg_path {
+            let rx = notifier::notify_oom(cid.as_str(), cg_path.to_string()).await?;
+
+            s.run_oom_event_monitor(rx, cid.clone()).await;
         }
 
         Ok(())
@@ -449,6 +451,7 @@ impl AgentService {
             "signal process";
             "container-id" => cid.clone(),
             "exec-id" => eid.clone(),
+            "signal" => req.signal,
         );
 
         let mut sig: libc::c_int = req.signal as libc::c_int;
@@ -462,8 +465,22 @@ impl AgentService {
             if p.init && sig == libc::SIGTERM && !is_signal_handled(&proc_status_file, sig as u32) {
                 sig = libc::SIGKILL;
             }
-            p.signal(sig)?;
-        }
+
+            match p.signal(sig) {
+                Err(Errno::ESRCH) => {
+                    info!(
+                        sl!(),
+                        "signal encounter ESRCH, continue";
+                        "container-id" => cid.clone(),
+                        "exec-id" => eid.clone(),
+                        "pid" => p.pid,
+                        "signal" => sig,
+                    );
+                }
+                Err(err) => return Err(anyhow!(err)),
+                Ok(()) => (),
+            }
+        };
 
         if eid.is_empty() {
             // eid is empty, signal all the remaining processes in the container cgroup
@@ -517,11 +534,7 @@ impl AgentService {
         let ctr = sandbox
             .get_container(cid)
             .ok_or_else(|| anyhow!("Invalid container id {}", cid))?;
-        let cm = ctr
-            .cgroup_manager
-            .as_ref()
-            .ok_or_else(|| anyhow!("cgroup manager not exist"))?;
-        cm.freeze(state)?;
+        ctr.cgroup_manager.as_ref().freeze(state)?;
         Ok(())
     }
 
@@ -531,11 +544,7 @@ impl AgentService {
         let ctr = sandbox
             .get_container(cid)
             .ok_or_else(|| anyhow!("Invalid container id {}", cid))?;
-        let cm = ctr
-            .cgroup_manager
-            .as_ref()
-            .ok_or_else(|| anyhow!("cgroup manager not exist"))?;
-        let pids = cm.get_pids()?;
+        let pids = ctr.cgroup_manager.as_ref().get_pids()?;
         Ok(pids)
     }
 
@@ -1104,8 +1113,18 @@ impl agent_ttrpc::AgentService for AgentService {
 
         info!(sl!(), "get_ip_tables: request received");
 
+        // the binary could exists in either /usr/sbin or /sbin
+        // here check both of the places and return the one exists
+        // if none exists, return the /sbin one, and the rpc will
+        // returns an internal error
         let cmd = if req.is_ipv6 {
-            IP6TABLES_SAVE
+            if Path::new(USR_IP6TABLES_SAVE).exists() {
+                USR_IP6TABLES_SAVE
+            } else {
+                IP6TABLES_SAVE
+            }
+        } else if Path::new(USR_IPTABLES_SAVE).exists() {
+            USR_IPTABLES_SAVE
         } else {
             IPTABLES_SAVE
         }
@@ -1133,8 +1152,18 @@ impl agent_ttrpc::AgentService for AgentService {
 
         info!(sl!(), "set_ip_tables request received");
 
+        // the binary could exists in both /usr/sbin and /sbin
+        // here check both of the places and return the one exists
+        // if none exists, return the /sbin one, and the rpc will
+        // returns an internal error
         let cmd = if req.is_ipv6 {
-            IP6TABLES_RESTORE
+            if Path::new(USR_IP6TABLES_RESTORE).exists() {
+                USR_IP6TABLES_RESTORE
+            } else {
+                IP6TABLES_RESTORE
+            }
+        } else if Path::new(USR_IPTABLES_RESTORE).exists() {
+            USR_IPTABLES_RESTORE
         } else {
             IPTABLES_RESTORE
         }
@@ -2183,6 +2212,11 @@ mod tests {
     use tempfile::{tempdir, TempDir};
     use test_utils::{assert_result, skip_if_not_root};
     use ttrpc::{r#async::TtrpcContext, MessageHeader};
+    use which::which;
+
+    fn check_command(cmd: &str) -> bool {
+        which(cmd).is_ok()
+    }
 
     fn mk_ttrpc_context() -> TtrpcContext {
         TtrpcContext {
@@ -2902,6 +2936,27 @@ OtherField:other
     async fn test_ip_tables() {
         skip_if_not_root!();
 
+        let iptables_cmd_list = [
+            USR_IPTABLES_SAVE,
+            USR_IP6TABLES_SAVE,
+            USR_IPTABLES_RESTORE,
+            USR_IP6TABLES_RESTORE,
+            IPTABLES_SAVE,
+            IP6TABLES_SAVE,
+            IPTABLES_RESTORE,
+            IP6TABLES_RESTORE,
+        ];
+
+        for cmd in iptables_cmd_list {
+            if !check_command(cmd) {
+                warn!(
+                    sl!(),
+                    "one or more commands for ip tables test are missing, skip it"
+                );
+                return;
+            }
+        }
+
         let logger = slog::Logger::root(slog::Discard, o!());
         let sandbox = Sandbox::new(&logger).unwrap();
         let agent_service = Box::new(AgentService {
@@ -3011,7 +3066,7 @@ COMMIT
             .unwrap();
         assert!(!result.data.is_empty(), "we should have non-zero output:");
         assert!(
-            std::str::from_utf8(&*result.data).unwrap().contains(
+            std::str::from_utf8(&result.data).unwrap().contains(
                 "PREROUTING -d 192.168.103.153/32 -j DNAT --to-destination 192.168.188.153"
             ),
             "We should see the resulting rule"
@@ -3049,10 +3104,141 @@ COMMIT
             .unwrap();
         assert!(!result.data.is_empty(), "we should have non-zero output:");
         assert!(
-            std::str::from_utf8(&*result.data)
+            std::str::from_utf8(&result.data)
                 .unwrap()
                 .contains("INPUT -s 2001:db8:100::1/128 -i sit+ -p tcp -m tcp --sport 512:65535"),
             "We should see the resulting rule"
         );
+    }
+
+    #[tokio::test]
+    async fn test_merge_cwd() {
+        #[derive(Debug)]
+        struct TestData<'a> {
+            container_process_cwd: &'a str,
+            image_process_cwd: &'a str,
+            expected: &'a str,
+        }
+
+        let tests = &[
+            // Image cwd should override blank container cwd
+            // TODO - how can we tell the user didn't specifically set it to `/` vs not setting at all? Is that scenario valid?
+            TestData {
+                container_process_cwd: "/",
+                image_process_cwd: "/imageDir",
+                expected: "/imageDir",
+            },
+            // Container cwd should override image cwd
+            TestData {
+                container_process_cwd: "/containerDir",
+                image_process_cwd: "/imageDir",
+                expected: "/containerDir",
+            },
+            // Container cwd should override blank image cwd
+            TestData {
+                container_process_cwd: "/containerDir",
+                image_process_cwd: "/",
+                expected: "/containerDir",
+            },
+        ];
+
+        for (i, d) in tests.iter().enumerate() {
+            let msg = format!("test[{}]: {:?}", i, d);
+
+            let mut container_process = oci::Process {
+                cwd: d.container_process_cwd.to_string(),
+                ..Default::default()
+            };
+
+            let image_process = oci::Process {
+                cwd: d.image_process_cwd.to_string(),
+                ..Default::default()
+            };
+
+            merge_oci_process(&mut container_process, &image_process);
+
+            assert_eq!(d.expected, container_process.cwd, "{}", msg);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_merge_env() {
+        #[derive(Debug)]
+        struct TestData {
+            container_process_env: Vec<String>,
+            image_process_env: Vec<String>,
+            expected: Vec<String>,
+        }
+
+        let tests = &[
+            // Test that the pods environment overrides the images
+            TestData {
+                container_process_env: vec!["ISPRODUCTION=true".to_string()],
+                image_process_env: vec!["ISPRODUCTION=false".to_string()],
+                expected: vec!["ISPRODUCTION=true".to_string()],
+            },
+            // Test that multiple environment variables can be overrided
+            TestData {
+                container_process_env: vec![
+                    "ISPRODUCTION=true".to_string(),
+                    "ISDEVELOPMENT=false".to_string(),
+                ],
+                image_process_env: vec![
+                    "ISPRODUCTION=false".to_string(),
+                    "ISDEVELOPMENT=true".to_string(),
+                ],
+                expected: vec![
+                    "ISPRODUCTION=true".to_string(),
+                    "ISDEVELOPMENT=false".to_string(),
+                ],
+            },
+            // Test that when none of the variables match do not override them
+            TestData {
+                container_process_env: vec!["ANOTHERENV=TEST".to_string()],
+                image_process_env: vec![
+                    "ISPRODUCTION=false".to_string(),
+                    "ISDEVELOPMENT=true".to_string(),
+                ],
+                expected: vec![
+                    "ANOTHERENV=TEST".to_string(),
+                    "ISPRODUCTION=false".to_string(),
+                    "ISDEVELOPMENT=true".to_string(),
+                ],
+            },
+            // Test a mix of both overriding and not
+            TestData {
+                container_process_env: vec![
+                    "ANOTHERENV=TEST".to_string(),
+                    "ISPRODUCTION=true".to_string(),
+                ],
+                image_process_env: vec![
+                    "ISPRODUCTION=false".to_string(),
+                    "ISDEVELOPMENT=true".to_string(),
+                ],
+                expected: vec![
+                    "ANOTHERENV=TEST".to_string(),
+                    "ISPRODUCTION=true".to_string(),
+                    "ISDEVELOPMENT=true".to_string(),
+                ],
+            },
+        ];
+
+        for (i, d) in tests.iter().enumerate() {
+            let msg = format!("test[{}]: {:?}", i, d);
+
+            let mut container_process = oci::Process {
+                env: d.container_process_env.clone(),
+                ..Default::default()
+            };
+
+            let image_process = oci::Process {
+                env: d.image_process_env.clone(),
+                ..Default::default()
+            };
+
+            merge_oci_process(&mut container_process, &image_process);
+
+            assert_eq!(d.expected, container_process.env, "{}", msg);
+        }
     }
 }

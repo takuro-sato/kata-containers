@@ -64,8 +64,8 @@ The kata-runtime is controlled by TOKIO_RUNTIME_WORKER_THREADS to run the OS thr
   ├─ TTRPC listener thread(M * tokio task)
   ├─ TTRPC client handler thread(7 * M * tokio task)
   ├─ container stdin io thread(M * tokio task)
-  ├─ container stdin io thread(M * tokio task)
-  └─ container stdin io thread(M * tokio task)
+  ├─ container stdout io thread(M * tokio task)
+  └─ container stderr io thread(M * tokio task)
 ```
 ### Extensible Framework
 The Kata 3.x runtime is designed with the extension of service, runtime, and hypervisor, combined with configuration to meet the needs of different scenarios. At present, the service provides a register mechanism to support multiple services. Services could interact with runtime through messages. In addition, the runtime handler handles messages from services. To meet the needs of a binary that supports multiple runtimes and hypervisors, the startup must obtain the runtime handler type and hypervisor type through configuration.
@@ -81,31 +81,31 @@ In our case, there will be a variety of resources, and every resource has severa
 - Stage 2 (September): support common features
 - Stage 3: support full features
 
-| **Class**                  | **Sub-Class**       | **Development Stage** |
-| -------------------------- | ------------------- | --------------------- |
-| Service                    | task service        | Stage 1               |
-|                            | extend service      | Stage 3               |
-|                            | image service       | Stage 3               |
-| Runtime handler            | `Virt-Container`    | Stage 1               |
-|                            | `Wasm-Container`    | Stage 3               |
-|                            | `Linux-Container`   | Stage 3               |
-| Endpoint                   | VETH Endpoint       | Stage 1               |
-|                            | Physical Endpoint   | Stage 2               |
-|                            | Tap Endpoint        | Stage 2               |
-|                            | `Tuntap` Endpoint   | Stage 2               |
-|                            | `IPVlan` Endpoint   | Stage 3               |
-|                            | `MacVlan` Endpoint  | Stage 3               |
-|                            | MACVTAP Endpoint    | Stage 3               |
-|                            | `VhostUserEndpoint` | Stage 3               |
-| Network Interworking Model | Tc filter           | Stage 1               |
-|                            | `MacVtap`           | Stage 3               |
-| Storage                    | Virtio-fs           | Stage 1               |
-|                            | `nydus`             | Stage 2               |
-| Hypervisor                 | `Dragonball`        | Stage 1               |
-|                            | QEMU                | Stage 2               |
-|                            | ACRN                | Stage 3               |
-|                            | Cloud Hypervisor    | Stage 3               |
-|                            | Firecracker         | Stage 3               |
+| **Class**                  | **Sub-Class**       | **Development Stage** | **Status** |
+| -------------------------- | ------------------- | --------------------- |------------|
+| Service                    | task service        | Stage 1               |  ✅        |
+|                            | extend service      | Stage 3               |  🚫        |
+|                            | image service       | Stage 3               |  🚫        |
+| Runtime handler            | `Virt-Container`    | Stage 1               |  ✅        |
+| Endpoint                   | VETH Endpoint       | Stage 1               |  ✅        |
+|                            | Physical Endpoint   | Stage 2               |  ✅        |
+|                            | Tap Endpoint        | Stage 2               |  ✅        |
+|                            | `Tuntap` Endpoint   | Stage 2               |  ✅        |
+|                            | `IPVlan` Endpoint   | Stage 2               |  ✅        |
+|                            | `MacVlan` Endpoint  | Stage 2               |  ✅        |
+|                            | MACVTAP Endpoint    | Stage 3               |  🚫        |
+|                            | `VhostUserEndpoint` | Stage 3               |  🚫        |
+| Network Interworking Model | Tc filter           | Stage 1               |  ✅        |
+|                            | `MacVtap`           | Stage 3               |  🚧        |
+| Storage                    | Virtio-fs           | Stage 1               |  ✅        |
+|                            | `nydus`             | Stage 2               |  🚧        |
+|                            | `device mapper`     | Stage 2               |  🚫        |
+| `Cgroup V2`                |                     | Stage 2               |  🚧        |
+| Hypervisor                 | `Dragonball`        | Stage 1               |  🚧        |
+|                            | QEMU                | Stage 2               |  🚫        |
+|                            | ACRN                | Stage 3               |  🚫        |
+|                            | Cloud Hypervisor    | Stage 3               |  🚫        |
+|                            | Firecracker         | Stage 3               |  🚫        |
 
 ## FAQ
 

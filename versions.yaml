@@ -75,7 +75,7 @@ assets:
       url: "https://github.com/cloud-hypervisor/cloud-hypervisor"
       uscan-url: >-
         https://github.com/cloud-hypervisor/cloud-hypervisor/tags.*/v?(\d\S+)\.tar\.gz
-      version: "v26.0"
+      version: "v28.0"
 
     firecracker:
       description: "Firecracker micro-VMM"
@@ -100,8 +100,13 @@ assets:
         .*/v?(\d\S+)\.tar\.gz
       tdx:
         description: "VMM that uses KVM and supports TDX"
-        url: "https://github.com/intel/qemu-dcp"
-        tag: "SPR-BKC-QEMU-v2.5"
+        url: "https://github.com/kata-containers/qemu"
+        tag: "TDX-v3.1"
+      snp:
+        description: "VMM that uses KVM and supports AMD SEV-SNP"
+        url: "https://github.com/AMDESE/qemu"
+        branch: "snp-v3"
+        commit: "ffa95097ee"
 
     qemu-experimental:
       description: "QEMU with virtiofs support"
@@ -154,10 +159,14 @@ assets:
     version: "v5.19.2"
     tdx:
       description: "Linux kernel that supports TDX"
-      url: "https://github.com/intel/linux-kernel-dcp/archive/refs/tags"
-      tag: "SPR-BKC-PC-v9.6"
+      url: "https://github.com/kata-containers/linux/archive/refs/tags"
+      tag: "5.15-plus-TDX"
     sev:
       description: "Linux kernel that supports SEV"
+      url: "https://cdn.kernel.org/pub/linux/kernel/v5.x/"
+      version: "v5.19.2"
+    snp:
+      description: "Linux kernel that supports AMD SEV-SNP for VMs"
       url: "https://cdn.kernel.org/pub/linux/kernel/v5.x/"
       version: "v5.19.2"
 
@@ -171,13 +180,18 @@ assets:
     url: "https://cdn.kernel.org/pub/linux/kernel/v5.x/"
     version: "v5.15.7"
 
+  dragonball-kernel-experimental:
+    description: "Linux kernel with Dragonball VMM optimizations like upcall"
+    url: "https://cdn.kernel.org/pub/linux/kernel/v5.x/"
+    version: "v5.10.25"
+
 externals:
   description: "Third-party projects used by the system"
 
   attestation-agent:
     description: "Provide attested key unwrapping for image decryption"
     url: "https://github.com/confidential-containers/attestation-agent"
-    branch: "main"
+    version: "v0.2.0"
 
   cni-plugins:
     description: "CNI network plugins"
@@ -200,9 +214,10 @@ externals:
       Containerd for Kubernetes Container Runtime Interface.
     # CCv0 is using our fork of containerd as the changes can't be merged yet
     url: "github.com/confidential-containers/containerd"
-    tarball_url: "https://github.com/containerd/containerd/releases/download"
-    version: "v1.6.6"
-    # CCv0 needs to build a branch from our fork to install containerd
+    # yamllint disable-line rule:line-length
+    tarball_url: "https://github.com/confidential-containers/containerd/releases/download"
+    version: "v1.6.8.1"
+    # CCv0 needs to know about the specific branch for the integration tests
     branch: "CC-main"
 
   critools:
@@ -210,10 +225,20 @@ externals:
     url: "https://github.com/kubernetes-sigs/cri-tools"
     version: "1.23.0"
 
+  cryptsetup:
+    description: "A utility used to setup disk encryption, integrity protection"
+    url: "https://gitlab.com/cryptsetup/cryptsetup"
+    version: "v2.5.0"
+
   gperf:
     description: "GNU gperf is a perfect hash function generator"
-    url: "https://ftpmirror.gnu.org/gnu/gperf"
+    url: "http://ftp.gnu.org/pub/gnu/gperf/"
     version: "3.1"
+
+  lvm2:
+    description: "LVM2 and device-mapper tools and libraries"
+    url: "https://github.com/lvmteam/lvm2"
+    version: "v2_03_16"
 
   kubernetes:
     description: "Kubernetes project container manager"
@@ -258,12 +283,12 @@ externals:
   nydus:
     description: "Nydus image acceleration service"
     url: "https://github.com/dragonflyoss/image-service"
-    version: "v2.1.0-alpha.4"
+    version: "v2.1.1"
 
   nydus-snapshotter:
     description: "Snapshotter for Nydus image acceleration service"
     url: "https://github.com/containerd/nydus-snapshotter"
-    version: "v0.2.3"
+    version: "v0.3.3"
 
   ovmf:
     description: "Firmware, implementation of UEFI for virtual machines."
@@ -275,7 +300,10 @@ externals:
       package_output_dir: "OvmfX64"
     sev:
       description: "AmdSev build needed for SEV measured direct boot."
-      version: "edk2-stable202202"
+      # CCv0 switching to this fork until new release of edk2 has fix
+      # per #5893, will need to be reverted to upstream
+      url: "https://github.com/kata-containers/edk2"
+      version: "edk2-202208-sev-alloc-runtime-secret-area"
       package: "OvmfPkg/AmdSev/AmdSevX64.dsc"
       package_output_dir: "AmdSev"
     tdx:
@@ -288,13 +316,14 @@ externals:
   td-shim:
     description: "Confidential Containers Shim Firmware"
     url: "https://github.com/confidential-containers/td-shim"
-    version: "cf9592ef70bd6ba4c7ab1330d278a743f5ba3133"
+    version: "v0.2.0"
     toolchain: "nightly-2022-05-15"
 
   virtiofsd:
     description: "vhost-user virtio-fs device backend written in Rust"
     url: "https://gitlab.com/virtio-fs/virtiofsd"
     version: "v1.3.0"
+    toolchain: "1.62.0"
     meta:
       # From https://gitlab.com/virtio-fs/virtiofsd/-/releases/v1.3.0,
       # this is the link labelled virtiofsd-v1.3.0.zip
@@ -310,35 +339,32 @@ languages:
   golang:
     description: "Google's 'go' language"
     notes: "'version' is the default minimum version used by this project."
-    issue: "https://github.com/golang/go/issues/20676"
-    uscan-url: >-
-      https://github.com/golang/go/tags .*/go?([\d\.]+)\.tar\.gz
-    version: "1.16.10"
+    version: "1.19.3"
     meta:
       description: |
         'newest-version' is the latest version known to work when
         building Kata
-      newest-version: "1.17.3"
+      newest-version: "1.19.3"
 
   rust:
     description: "Rust language"
     notes: "'version' is the default minimum version used by this project."
-    version: "1.62.0"
+    version: "1.66.0"
     meta:
       description: |
         'newest-version' is the latest version known to work when
         building Kata
-      newest-version: "1.62.0"
+      newest-version: "1.66.0"
 
   golangci-lint:
     description: "golangci-lint"
     notes: "'version' is the default minimum version used by this project."
-    version: "1.41.1"
+    version: "1.50.1"
     meta:
       description: |
         'newest-version' is the latest version known to work when
         building Kata
-      newest-version: "1.46.2"
+      newest-version: "1.50.1"
 
 specs:
   description: "Details of important specifications"
@@ -349,7 +375,7 @@ specs:
     uscan-url: >-
       https://github.com/opencontainers/runtime-spec/tags
       .*/v?(\d\S+)\.tar\.gz
-    version: "v1.0.0-rc5"
+    version: "v1.0.2"
 
 plugins:
   description: |

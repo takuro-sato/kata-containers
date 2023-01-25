@@ -4,21 +4,21 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+use std::collections::HashMap;
+
 use agent::Storage;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use hypervisor::{
-    device::{Device as HypervisorDevice, ShareFsMountConfig, ShareFsMountType, ShareFsOperation},
-    Hypervisor,
-};
+use hypervisor::Hypervisor;
 use kata_types::config::hypervisor::SharedFsInfo;
+use tokio::sync::Mutex;
 
 use super::{
     share_virtio_fs::{
-        prepare_virtiofs, FS_TYPE_VIRTIO_FS, KATA_VIRTIO_FS_DEV_TYPE, MOUNT_GUEST_TAG,
-        PASSTHROUGH_FS_DIR,
+        prepare_virtiofs, setup_inline_virtiofs, FS_TYPE_VIRTIO_FS, KATA_VIRTIO_FS_DEV_TYPE,
+        MOUNT_GUEST_TAG,
     },
-    utils, ShareFs, *,
+    ShareFs, *,
 };
 
 lazy_static! {
@@ -33,6 +33,7 @@ pub struct ShareVirtioFsInlineConfig {
 pub struct ShareVirtioFsInline {
     config: ShareVirtioFsInlineConfig,
     share_fs_mount: Arc<dyn ShareFsMount>,
+    mounted_info_set: Arc<Mutex<HashMap<String, MountedInfo>>>,
 }
 
 impl ShareVirtioFsInline {
@@ -40,6 +41,7 @@ impl ShareVirtioFsInline {
         Ok(Self {
             config: ShareVirtioFsInlineConfig { id: id.to_string() },
             share_fs_mount: Arc::new(VirtiofsShareMount::new(id)),
+            mounted_info_set: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 }
@@ -80,30 +82,8 @@ impl ShareFs for ShareVirtioFsInline {
         storages.push(shared_volume);
         Ok(storages)
     }
-}
 
-async fn setup_inline_virtiofs(id: &str, h: &dyn Hypervisor) -> Result<()> {
-    // - source is the absolute path of PASSTHROUGH_FS_DIR on host, e.g.
-    //   /run/kata-containers/shared/sandboxes/<sid>/passthrough
-    // - mount point is the path relative to KATA_GUEST_SHARE_DIR in guest
-    let mnt = format!("/{}", PASSTHROUGH_FS_DIR);
-
-    let rw_source = utils::get_host_rw_shared_path(id).join(PASSTHROUGH_FS_DIR);
-    utils::ensure_dir_exist(&rw_source)?;
-
-    let ro_source = utils::get_host_ro_shared_path(id).join(PASSTHROUGH_FS_DIR);
-    let source = String::from(ro_source.to_str().unwrap());
-
-    let virtio_fs = HypervisorDevice::ShareFsMount(ShareFsMountConfig {
-        source: source.clone(),
-        fstype: ShareFsMountType::PASSTHROUGH,
-        mount_point: mnt,
-        config: None,
-        tag: String::from(MOUNT_GUEST_TAG),
-        op: ShareFsOperation::Mount,
-        prefetch_list_path: None,
-    });
-    h.add_device(virtio_fs)
-        .await
-        .context(format!("fail to attach passthrough fs {:?}", source))
+    fn mounted_info_set(&self) -> Arc<Mutex<HashMap<String, MountedInfo>>> {
+        self.mounted_info_set.clone()
+    }
 }

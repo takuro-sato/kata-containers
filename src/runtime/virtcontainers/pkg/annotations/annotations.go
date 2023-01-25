@@ -143,6 +143,9 @@ const (
 	// DefaultVCPUs is a sandbox annotation that specifies the maximum number of vCPUs allocated for the VM by the hypervisor.
 	DefaultMaxVCPUs = kataAnnotHypervisorPrefix + "default_max_vcpus"
 
+	// EnableVCPUsPinning is a sandbox annotation that controls bundling between vCPU threads and CPUs
+	EnableVCPUsPinning = kataAnnotationsPrefix + "enable_vcpus_pinning"
+
 	//
 	//	Memory related annotations
 	//
@@ -243,6 +246,9 @@ const (
 
 	// DisableGuestSeccomp is a sandbox annotation that determines if seccomp should be applied inside guest.
 	DisableGuestSeccomp = kataAnnotRuntimePrefix + "disable_guest_seccomp"
+
+	// GuestSeLinuxLabel is a SELinux security policy that is applied to a container process inside guest.
+	GuestSeLinuxLabel = kataAnnotRuntimePrefix + "guest_selinux_label"
 
 	// SandboxCgroupOnly is a sandbox annotation that determines if kata processes are managed only in sandbox cgroup.
 	SandboxCgroupOnly = kataAnnotRuntimePrefix + "sandbox_cgroup_only"

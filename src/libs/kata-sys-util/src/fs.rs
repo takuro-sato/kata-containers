@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{Error, Result};
 use std::os::unix::io::AsRawFd;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use crate::{eother, sl};
@@ -28,11 +28,6 @@ type FsType = libc::c_uint;
 const FUSE_SUPER_MAGIC: FsType = 0x65735546;
 // from linux.git/include/uapi/linux/magic.h
 const OVERLAYFS_SUPER_MAGIC: FsType = 0x794c7630;
-
-/// Get bundle path (current working directory).
-pub fn get_bundle_path() -> Result<PathBuf> {
-    std::env::current_dir()
-}
 
 /// Get the basename of the canonicalized path
 pub fn get_base_name<P: AsRef<Path>>(src: P) -> Result<OsString> {
@@ -150,7 +145,7 @@ pub fn reflink_copy<S: AsRef<Path>, D: AsRef<Path>>(src: S, dst: D) -> Result<()
 // Copy file using cp command, which handles sparse file copy.
 fn do_regular_copy(src: &str, dst: &str) -> Result<()> {
     let mut cmd = Command::new("/bin/cp");
-    cmd.args(&["--sparse=auto", src, dst]);
+    cmd.args(["--sparse=auto", src, dst]);
 
     match cmd.output() {
         Ok(output) => match output.status.success() {

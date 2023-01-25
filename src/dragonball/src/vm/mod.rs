@@ -67,7 +67,7 @@ pub enum VmError {
 }
 
 /// Configuration information for user defined NUMA nodes.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NumaRegionInfo {
     /// memory size for this region (unit: MiB)
     pub size: u64,
@@ -80,7 +80,7 @@ pub struct NumaRegionInfo {
 }
 
 /// Information for cpu topology to guide guest init
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CpuTopology {
     /// threads per core to indicate hyperthreading is enabled or not
     pub threads_per_core: u8,
@@ -104,7 +104,7 @@ impl Default for CpuTopology {
 }
 
 /// Configuration information for virtual machine instance.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VmConfigInfo {
     /// Number of vcpu to start.
     pub vcpu_count: u8,
@@ -520,6 +520,7 @@ impl Vm {
         let mem_type = self.vm_config.mem_type.clone();
         let mut mem_file_path = String::from("");
         if mem_type == "hugetlbfs" {
+            mem_file_path = self.vm_config.mem_file_path.clone();
             let shared_info = self.shared_info.read()
                     .expect("Failed to determine if instance is initialized because shared info couldn't be read due to poisoned lock");
             mem_file_path.push_str("/dragonball/");
@@ -812,5 +813,25 @@ impl Vm {
         _epoll_mgr: Option<EpollManager>,
     ) -> std::result::Result<DeviceOpContext, StartMicroVmError> {
         Err(StartMicroVmError::MicroVMAlreadyRunning)
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    impl Vm {
+        pub fn set_instance_state(&mut self, mstate: InstanceState) {
+            self.shared_info
+            .write()
+            .expect("Failed to start microVM because shared info couldn't be written due to poisoned lock")
+            .state = mstate;
+        }
+    }
+
+    pub fn create_vm_instance() -> Vm {
+        let instance_info = Arc::new(RwLock::new(InstanceInfo::default()));
+        let epoll_manager = EpollManager::default();
+        Vm::new(None, instance_info, epoll_manager).unwrap()
     }
 }

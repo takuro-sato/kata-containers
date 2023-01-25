@@ -77,6 +77,8 @@ const (
 	MinHypervisorMemory = 256
 
 	defaultMsize9p = 8192
+
+	defaultDisableGuestSeLinux = true
 )
 
 var (
@@ -287,6 +289,7 @@ type HypervisorConfig struct {
 	GuestPreAttestationSecretType  string
 	SEVCertChainPath               string
 	BlockDeviceAIO                 string
+	User                           string
 	RemoteHypervisorSocket         string
 	SandboxName                    string
 	SandboxNamespace               string
@@ -322,6 +325,7 @@ type HypervisorConfig struct {
 	Msize9p                        uint32
 	MemSlots                       uint32
 	VirtioFSCacheSize              uint32
+	VirtioFSQueueSize              uint32
 	Uid                            uint32
 	Gid                            uint32
 	SEVGuestPolicy                 uint32
@@ -341,6 +345,7 @@ type HypervisorConfig struct {
 	HotplugVFIOOnRootBus           bool
 	GuestMemoryDumpPaging          bool
 	ConfidentialGuest              bool
+	SevSnpGuest                    bool
 	GuestPreAttestation            bool
 	BlockDeviceCacheNoflush        bool
 	BlockDeviceCacheDirect         bool
@@ -353,7 +358,9 @@ type HypervisorConfig struct {
 	Rootless                       bool
 	DisableSeccomp                 bool
 	DisableSeLinux                 bool
+	DisableGuestSeLinux            bool
 	LegacySerial                   bool
+	EnableVCPUsPinning             bool
 }
 
 // vcpu mapping from vcpu number to thread number
@@ -671,6 +678,11 @@ const (
 	// Exclude from lint checking for it won't be used on arm64 code
 	sevProtection
 
+	// AMD Secure Encrypted Virtualization - Secure Nested Paging (SEV-SNP)
+	// https://developer.amd.com/sev/
+	// Exclude from lint checking for it won't be used on arm64 code
+	snpProtection
+
 	// IBM POWER 9 Protected Execution Facility
 	// https://www.kernel.org/doc/html/latest/powerpc/ultravisor.html
 	// Exclude from lint checking for it won't be used on arm64 code
@@ -687,6 +699,7 @@ var guestProtectionStr = [...]string{
 	pefProtection:  "pef",
 	seProtection:   "se",
 	sevProtection:  "sev",
+	snpProtection:  "snp",
 	tdxProtection:  "tdx",
 }
 

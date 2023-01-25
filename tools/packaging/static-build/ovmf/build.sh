@@ -9,14 +9,13 @@ set -o nounset
 set -o pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly repo_root_dir="$(cd "${script_dir}/../../../.." && pwd)"
 readonly ovmf_builder="${script_dir}/build-ovmf.sh"
 
 source "${script_dir}/../../scripts/lib.sh"
 
 DESTDIR=${DESTDIR:-${PWD}}
 PREFIX=${PREFIX:-/opt/kata}
-container_image="kata-ovmf-builder"
+container_image="${OVMF_CONTAINER_BUILDER:-$(get_ovmf_image_name)}"
 ovmf_build="${ovmf_build:-x86_64}"
 kata_version="${kata_version:-}"
 ovmf_repo="${ovmf_repo:-}"
@@ -25,11 +24,17 @@ ovmf_package="${ovmf_package:-}"
 package_output_dir="${package_output_dir:-}"
 
 if [ -z "$ovmf_repo" ]; then
-       if [ "${ovmf_build}" == "tdx" ]; then
-	       ovmf_repo=$(get_from_kata_deps "externals.ovmf.tdx.url" "${kata_version}")
-       else
-	       ovmf_repo=$(get_from_kata_deps "externals.ovmf.url" "${kata_version}")
-       fi
+	case "${ovmf_build}" in
+		"tdx")
+			ovmf_repo=$(get_from_kata_deps "externals.ovmf.tdx.url" "${kata_version}")
+			;;
+		"sev")
+			ovmf_repo=$(get_from_kata_deps "externals.ovmf.sev.url" "${kata_version}")
+			;;
+		*)
+			ovmf_repo=$(get_from_kata_deps "externals.ovmf.url" "${kata_version}")
+			;;
+	esac
 fi
 
 [ -n "$ovmf_repo" ] || die "failed to get ovmf repo"
@@ -52,7 +57,10 @@ fi
 [ -n "$ovmf_package" ] || die "failed to get ovmf package or commit"
 [ -n "$package_output_dir" ] || die "failed to get ovmf package or commit"
 
-sudo docker build -t "${container_image}" "${script_dir}"
+sudo docker pull ${container_image} || \
+	(sudo docker build -t "${container_image}" "${script_dir}" && \
+	 # No-op unless PUSH_TO_REGISTRY is exported as "yes"
+	 push_to_registry "${container_image}")
 
 sudo docker run --rm -i -v "${repo_root_dir}:${repo_root_dir}" \
 	-w "${PWD}" \

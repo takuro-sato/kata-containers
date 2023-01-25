@@ -2,12 +2,22 @@
 # Copyright (c) 2019-2022 Ant Group. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+include ../../utils.mk
+
+ifeq ($(ARCH), s390x)
+default build check test clippy:
+	@echo "s390x not support currently"
+	exit 0
+else
+
 default: build
 
 build:
-	# FIXME: This line will be removed when we solve the vm-memory dependency problem in Dragonball Sandbox
-	cargo update -p vm-memory:0.8.0 --precise 0.7.0
-	cargo build --all-features
+	@echo "INFO: cargo build..."
+	cargo build --all-features --target $(TRIPLE)
+
+static-checks-build:
+	@echo "INFO: static-checks-build do nothing.."
 
 check: clippy format
 
@@ -17,6 +27,9 @@ clippy:
 		-- \
 		-D warnings
 
+vendor:
+	@echo "INFO: vendor do nothing.."
+
 format:
 	@echo "INFO: cargo fmt..."
 	cargo fmt -- --check
@@ -25,5 +38,13 @@ clean:
 	cargo clean
 
 test:
-	@echo "INFO: testing dragonball for development build"
-	cargo test --all-features -- --nocapture
+ifdef SUPPORT_VIRTUALIZATION
+	cargo test --all-features --target $(TRIPLE) -- --nocapture
+else
+	@echo "INFO: skip testing dragonball, it need virtualization support."
+	exit 0
+endif
+
+endif # ifeq ($(ARCH), s390x)
+
+.DEFAULT_GOAL := default

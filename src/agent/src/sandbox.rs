@@ -298,7 +298,6 @@ impl Sandbox {
             info!(self.logger, "updating {}", ctr.id.as_str());
             ctr.cgroup_manager
                 .as_ref()
-                .unwrap()
                 .update_cpuset_path(guest_cpuset.as_str(), container_cpust)?;
         }
 
@@ -329,7 +328,7 @@ impl Sandbox {
             // Reject non-file, symlinks and non-executable files
             if !entry.file_type()?.is_file()
                 || entry.file_type()?.is_symlink()
-                || entry.metadata()?.permissions().mode() & 0o777 & 0o111 == 0
+                || entry.metadata()?.permissions().mode() & 0o111 == 0
             {
                 continue;
             }
@@ -1075,7 +1074,7 @@ mod tests {
                 fs::create_dir(&subdir_path).unwrap();
                 for file in j.files {
                     let subfile_path = format!("{}/{}", subdir_path, file.name);
-                    let mut subfile = File::create(&subfile_path).unwrap();
+                    let mut subfile = File::create(subfile_path).unwrap();
                     subfile.write_all(file.content.as_bytes()).unwrap();
                 }
             }

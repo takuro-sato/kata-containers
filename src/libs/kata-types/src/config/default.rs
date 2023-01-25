@@ -18,9 +18,11 @@ lazy_static! {
         "/usr/share/defaults/kata-containers/configuration.toml",
     ];
 }
+
 pub const DEFAULT_AGENT_NAME: &str = "kata-agent";
 pub const DEFAULT_AGENT_VSOCK_PORT: u32 = 1024;
 pub const DEFAULT_AGENT_LOG_PORT: u32 = 1025;
+pub const DEFAULT_AGENT_DBG_CONSOLE_PORT: u32 = 1026;
 pub const DEFAULT_AGENT_TYPE_NAME: &str = AGENT_NAME_KATA;
 
 pub const DEFAULT_RUNTIME_NAME: &str = RUNTIME_NAME_VIRTCONTAINER;
@@ -33,7 +35,7 @@ pub const DEFAULT_VHOST_USER_STORE_PATH: &str = "/var/run/vhost-user";
 pub const DEFAULT_BLOCK_NVDIMM_MEM_OFFSET: u64 = 0;
 
 pub const DEFAULT_SHARED_FS_TYPE: &str = "virtio-fs";
-pub const DEFAULT_VIRTIO_FS_CACHE_MODE: &str = "none";
+pub const DEFAULT_VIRTIO_FS_CACHE_MODE: &str = "never";
 pub const DEFAULT_VIRTIO_FS_DAX_SIZE_MB: u32 = 1024;
 pub const DEFAULT_SHARED_9PFS_SIZE_MB: u32 = 128 * 1024;
 pub const MIN_SHARED_9PFS_SIZE_MB: u32 = 4 * 1024;

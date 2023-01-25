@@ -5,6 +5,9 @@ authors = ["The Kata Containers community <kata-dev@lists.katacontainers.io>"]
 edition = "2018"
 license = "Apache-2.0"
 
+[dev-dependencies]
+test-utils = { path = "../../../libs/test-utils" }
+
 [dependencies]
 anyhow = "^1.0"
 async-trait = "0.1.48"
@@ -20,6 +23,7 @@ rand = "^0.7.2"
 rtnetlink = "0.11.0"
 scopeguard = "1.0.0"
 serde = { version = "1.0.138", features = ["derive"] }
+serde_json = "1.0.82"
 slog = "2.5.2"
 slog-scope = "4.4.0"
 tokio = { version = "1.8.0", features = ["process"] }

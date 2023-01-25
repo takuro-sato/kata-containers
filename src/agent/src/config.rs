@@ -27,9 +27,11 @@ const CONTAINER_PIPE_SIZE_OPTION: &str = "agent.container_pipe_size";
 const UNIFIED_CGROUP_HIERARCHY_OPTION: &str = "agent.unified_cgroup_hierarchy";
 const CONFIG_FILE: &str = "agent.config_file";
 const CONTAINER_POLICY_FILE: &str = "agent.container_policy_file";
+const AA_KBC_PARAMS: &str = "agent.aa_kbc_params";
 const HTTPS_PROXY: &str = "agent.https_proxy";
 const NO_PROXY: &str = "agent.no_proxy";
 const ENABLE_DATA_INTEGRITY: &str = "agent.data_integrity";
+const ENABLE_SIGNATURE_VERIFICATION: &str = "agent.enable_signature_verification";
 
 const DEFAULT_LOG_LEVEL: slog::Level = slog::Level::Info;
 const DEFAULT_HOTPLUG_TIMEOUT: time::Duration = time::Duration::from_secs(3);
@@ -92,6 +94,7 @@ pub struct AgentConfig {
     pub https_proxy: String,
     pub no_proxy: String,
     pub data_integrity: bool,
+    pub enable_signature_verification: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,6 +115,7 @@ pub struct AgentConfigBuilder {
     pub https_proxy: Option<String>,
     pub no_proxy: Option<String>,
     pub data_integrity: Option<bool>,
+    pub enable_signature_verification: Option<bool>,
 }
 
 macro_rules! config_override {
@@ -178,6 +182,7 @@ impl Default for AgentConfig {
             https_proxy: String::from(""),
             no_proxy: String::from(""),
             data_integrity: false,
+            enable_signature_verification: true,
         }
     }
 }
@@ -211,6 +216,11 @@ impl FromStr for AgentConfig {
         config_override!(agent_config_builder, agent_config, https_proxy);
         config_override!(agent_config_builder, agent_config, no_proxy);
         config_override!(agent_config_builder, agent_config, data_integrity);
+        config_override!(
+            agent_config_builder,
+            agent_config,
+            enable_signature_verification
+        );
 
         // Populate the allowed endpoints hash set, if we got any from the config file.
         if let Some(endpoints) = agent_config_builder.endpoints {
@@ -239,6 +249,10 @@ impl AgentConfig {
         let mut config: AgentConfig = Default::default();
         let cmdline = fs::read_to_string(file)?;
         let params: Vec<&str> = cmdline.split_ascii_whitespace().collect();
+
+        let mut using_config_file = false;
+        // Check if there is config file before parsing params that might
+        // override values from the config file.
         for param in params.iter() {
             // If we get a configuration file path from the command line, we
             // generate our config from it.
@@ -246,9 +260,13 @@ impl AgentConfig {
             // or if it can't be parsed properly.
             if param.starts_with(format!("{}=", CONFIG_FILE).as_str()) {
                 let config_file = get_string_value(param)?;
-                return AgentConfig::from_config_file(&config_file);
+                config = AgentConfig::from_config_file(&config_file)?;
+                using_config_file = true;
+                break;
             }
+        }
 
+        for param in params.iter() {
             // parse cmdline flags
             parse_cmdline_param!(param, DEBUG_CONSOLE_FLAG, config.debug_console);
             parse_cmdline_param!(param, DEV_MODE_FLAG, config.dev_mode);
@@ -316,12 +334,20 @@ impl AgentConfig {
                 get_container_policy_path_value
             );
 
+            parse_cmdline_param!(param, AA_KBC_PARAMS, config.aa_kbc_params, get_string_value);
             parse_cmdline_param!(param, HTTPS_PROXY, config.https_proxy, get_url_value);
             parse_cmdline_param!(param, NO_PROXY, config.no_proxy, get_string_value);
             parse_cmdline_param!(
                 param,
                 ENABLE_DATA_INTEGRITY,
                 config.data_integrity,
+                get_bool_value
+            );
+
+            parse_cmdline_param!(
+                param,
+                ENABLE_SIGNATURE_VERIFICATION,
+                config.enable_signature_verification,
                 get_bool_value
             );
         }
@@ -343,7 +369,9 @@ impl AgentConfig {
         }
 
         // We did not get a configuration file: allow all endpoints.
-        config.endpoints.all_allowed = true;
+        if !using_config_file {
+            config.endpoints.all_allowed = true;
+        }
 
         Ok(config)
     }
@@ -525,6 +553,7 @@ mod tests {
         assert_eq!(config.log_level, DEFAULT_LOG_LEVEL);
         assert_eq!(config.hotplug_timeout, DEFAULT_HOTPLUG_TIMEOUT);
         assert_eq!(config.container_policy_path, "");
+        assert!(config.enable_signature_verification);
     }
 
     #[test]
@@ -544,9 +573,11 @@ mod tests {
             unified_cgroup_hierarchy: bool,
             tracing: bool,
             container_policy_path: &'a str,
+            aa_kbc_params: &'a str,
             https_proxy: &'a str,
             no_proxy: &'a str,
             data_integrity: bool,
+            enable_signature_verification: bool,
         }
 
         impl Default for TestData<'_> {
@@ -563,9 +594,11 @@ mod tests {
                     unified_cgroup_hierarchy: false,
                     tracing: false,
                     container_policy_path: "",
+                    aa_kbc_params: "",
                     https_proxy: "",
                     no_proxy: "",
                     data_integrity: false,
+                    enable_signature_verification: true,
                 }
             }
         }
@@ -941,6 +974,16 @@ mod tests {
                 ..Default::default()
             },
             TestData {
+                contents: "agent.aa_kbc_params=offline_fs_kbc::null",
+                aa_kbc_params: "offline_fs_kbc::null",
+                ..Default::default()
+            },
+            TestData {
+                contents: "agent.aa_kbc_params=eaa_kbc::127.0.0.1:50000",
+                aa_kbc_params: "eaa_kbc::127.0.0.1:50000",
+                ..Default::default()
+            },
+            TestData {
                 contents: "agent.https_proxy=http://proxy.url.com:81/",
                 https_proxy: "http://proxy.url.com:81/",
                 ..Default::default()
@@ -983,6 +1026,26 @@ mod tests {
             TestData {
                 contents: "agent.data_integrity=0",
                 data_integrity: false,
+                ..Default::default()
+            },
+            TestData {
+                contents: "agent.enable_signature_verification=false",
+                enable_signature_verification: false,
+                ..Default::default()
+            },
+            TestData {
+                contents: "agent.enable_signature_verification=0",
+                enable_signature_verification: false,
+                ..Default::default()
+            },
+            TestData {
+                contents: "agent.enable_signature_verification=1",
+                enable_signature_verification: true,
+                ..Default::default()
+            },
+            TestData {
+                contents: "agent.enable_signature_verification=foo",
+                enable_signature_verification: false,
                 ..Default::default()
             },
         ];
@@ -1037,9 +1100,15 @@ mod tests {
                 "{}",
                 msg
             );
+            assert_eq!(d.aa_kbc_params, config.aa_kbc_params, "{}", msg);
             assert_eq!(d.https_proxy, config.https_proxy, "{}", msg);
             assert_eq!(d.no_proxy, config.no_proxy, "{}", msg);
             assert_eq!(d.data_integrity, config.data_integrity, "{}", msg);
+            assert_eq!(
+                d.enable_signature_verification, config.enable_signature_verification,
+                "{}",
+                msg
+            );
 
             for v in vars_to_unset {
                 env::remove_var(v);
@@ -1606,5 +1675,51 @@ Caused by:
 
         // Verify that the default values are valid
         assert_eq!(config.hotplug_timeout, DEFAULT_HOTPLUG_TIMEOUT);
+    }
+
+    #[test]
+    fn test_config_from_cmdline_and_config_file() {
+        let dir = tempdir().expect("failed to create tmpdir");
+
+        let agent_config = r#"
+               dev_mode = false
+               server_addr = 'vsock://8:2048'
+
+               [endpoints]
+               allowed = ["CreateContainer", "StartContainer"]
+              "#;
+
+        let config_path = dir.path().join("agent-config.toml");
+        let config_filename = config_path.to_str().expect("failed to get config filename");
+
+        fs::write(config_filename, agent_config).expect("failed to write agen config");
+
+        let cmdline = format!("agent.devmode agent.config_file={}", config_filename);
+
+        let cmdline_path = dir.path().join("cmdline");
+        let cmdline_filename = cmdline_path
+            .to_str()
+            .expect("failed to get cmdline filename");
+
+        fs::write(cmdline_filename, cmdline).expect("failed to write agen config");
+
+        let config = AgentConfig::from_cmdline(cmdline_filename, vec![])
+            .expect("failed to parse command line");
+
+        // Should be overwritten by cmdline
+        assert!(config.dev_mode);
+
+        // Should be from agent config
+        assert_eq!(config.server_addr, "vsock://8:2048");
+
+        // Should be from agent config
+        assert_eq!(
+            config.endpoints.allowed,
+            vec!["CreateContainer".to_string(), "StartContainer".to_string()]
+                .iter()
+                .cloned()
+                .collect()
+        );
+        assert!(!config.endpoints.all_allowed);
     }
 }

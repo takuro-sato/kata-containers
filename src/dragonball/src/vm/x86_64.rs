@@ -81,10 +81,10 @@ fn configure_system<M: GuestMemory>(
     if mem_end < mmio_start {
         add_e820_entry(
             &mut params.0,
-            himem_start.raw_value() as u64,
+            himem_start.raw_value(),
             // it's safe to use unchecked_offset_from because
             // mem_end > himem_start
-            mem_end.unchecked_offset_from(himem_start) as u64 + 1,
+            mem_end.unchecked_offset_from(himem_start) + 1,
             bootparam::E820_RAM,
         )
         .map_err(Error::BootSystem)?;
@@ -103,7 +103,7 @@ fn configure_system<M: GuestMemory>(
                 &mut params.0,
                 mmio_end.raw_value() + 1,
                 // it's safe to use unchecked_offset_from because mem_end > mmio_end
-                mem_end.unchecked_offset_from(mmio_end) as u64,
+                mem_end.unchecked_offset_from(mmio_end),
                 bootparam::E820_RAM,
             )
             .map_err(Error::BootSystem)?;
@@ -217,11 +217,17 @@ impl Vm {
         linux_loader::loader::load_cmdline(vm_memory, cmdline_addr, cmdline)
             .map_err(StartMicroVmError::LoadCommandline)?;
 
+        let cmdline_size = cmdline
+            .as_cstring()
+            .map_err(StartMicroVmError::ProcessCommandlne)?
+            .as_bytes_with_nul()
+            .len();
+
         configure_system(
             vm_memory,
             self.address_space.address_space(),
             cmdline_addr,
-            cmdline.as_str().len() + 1,
+            cmdline_size,
             &initrd,
             self.vm_config.vcpu_count,
             self.vm_config.max_vcpu_count,

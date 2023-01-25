@@ -18,18 +18,17 @@ tee="${tee:-}"
 
 export prefix="/opt/confidential-containers/"
 
-if [ -z "$qemu_repo" ]; then
+if [ -z "${qemu_repo}" ]; then
 	info "Get qemu information from runtime versions.yaml"
-	qemu_url=$(get_from_kata_deps "assets.hypervisor.qemu.url")
-	[ -n "$qemu_url" ] || die "failed to get qemu url"
-	qemu_repo="${qemu_url}.git"
+	export qemu_url=$(get_from_kata_deps "assets.hypervisor.qemu.url")
+	[ -n "${qemu_url}" ] || die "failed to get qemu url"
+	export qemu_repo="${qemu_url}.git"
 fi
-[ -n "$qemu_repo" ] || die "failed to get qemu repo"
 
-[ -n "$qemu_version" ] || qemu_version=$(get_from_kata_deps "assets.hypervisor.qemu.version")
-[ -n "$qemu_version" ] || die "failed to get qemu version"
+[ -n "${qemu_repo}" ] || die "failed to get qemu repo"
+[ -n "${qemu_version}" ] || export qemu_version=$(get_from_kata_deps "assets.hypervisor.qemu.version")
+[ -n "${qemu_version}" ] || die "failed to get qemu version"
 
-
-tarball_name="kata-static-qemu-cc.tar.gz"
-[ -n "${tee}" ] && tarball_name="kata-static-${tee}-qemu-cc.tar.gz"
-"${script_dir}/build-base-qemu.sh" "${qemu_repo}" "${qemu_version}" "${tee}" "${tarball_name}"
+qemu_tarball_name="kata-static-qemu-cc.tar.gz"
+[ -n "${tee}" ] && qemu_tarball_name="kata-static-${tee}-qemu-cc.tar.gz"
+"${script_dir}/build-base-qemu.sh" "${qemu_repo}" "${qemu_version}" "${tee}" "${qemu_tarball_name}"

@@ -648,7 +648,7 @@ pub fn recursive_ownership_change(
 ) -> Result<()> {
     let mut mask = if read_only { RO_MASK } else { RW_MASK };
     if path.is_dir() {
-        for entry in fs::read_dir(&path)? {
+        for entry in fs::read_dir(path)? {
             recursive_ownership_change(entry?.path().as_path(), uid, gid, read_only)?;
         }
         mask |= EXEC_MASK;
@@ -779,16 +779,20 @@ pub async fn add_storages(
             }
         };
 
-        // Todo need to rollback the mounted storage if err met.
-
-        if res.is_err() {
-            error!(
-                logger,
-                "add_storages failed, storage: {:?}, error: {:?} ", storage, res
-            );
-        }
-
-        let mount_point = res?;
+        let mount_point = match res {
+            Err(e) => {
+                error!(
+                    logger,
+                    "add_storages failed, storage: {:?}, error: {:?} ", storage, e
+                );
+                let mut sb = sandbox.lock().await;
+                sb.unset_sandbox_storage(&storage.mount_point)
+                    .map_err(|e| warn!(logger, "fail to unset sandbox storage {:?}", e))
+                    .ok();
+                return Err(e);
+            }
+            Ok(m) => m,
+        };
 
         if !mount_point.is_empty() {
             mount_list.push(mount_point);
@@ -890,7 +894,7 @@ pub fn get_cgroup_mounts(
         }]);
     }
 
-    let file = File::open(&cg_path)?;
+    let file = File::open(cg_path)?;
     let reader = BufReader::new(file);
 
     let mut has_device_cgroup = false;
@@ -1773,7 +1777,7 @@ mod tests {
             let tempdir = tempdir().unwrap();
 
             let src = if d.mask_src {
-                tempdir.path().join(&d.src)
+                tempdir.path().join(d.src)
             } else {
                 Path::new(d.src).to_path_buf()
             };
