@@ -128,9 +128,6 @@ type RuntimeConfig struct {
 	//Determines if seccomp should be applied inside guest
 	DisableGuestSeccomp bool
 
-	//SELinux security context applied to the container process inside guest.
-	GuestSeLinuxLabel string
-
 	// Sandbox sizing information which, if provided, indicates the size of
 	// the sandbox needed for the workload(s)
 	SandboxCPUs  uint32
@@ -657,12 +654,6 @@ func addHypervisorCPUOverrides(ocispec specs.Spec, sbConfig *vc.SandboxConfig) e
 		return err
 	}
 
-	if err := newAnnotationConfiguration(ocispec, vcAnnotations.EnableVCPUsPinning).setBool(func(enableVCPUsPinning bool) {
-		sbConfig.HypervisorConfig.EnableVCPUsPinning = enableVCPUsPinning
-	}); err != nil {
-		return err
-	}
-
 	return newAnnotationConfiguration(ocispec, vcAnnotations.DefaultMaxVCPUs).setUintWithCheck(func(maxVCPUs uint64) error {
 		max := uint32(maxVCPUs)
 
@@ -950,8 +941,6 @@ func SandboxConfig(ocispec specs.Spec, runtime RuntimeConfig, bundlePath, cid st
 		SandboxBindMounts: runtime.SandboxBindMounts,
 
 		DisableGuestSeccomp: runtime.DisableGuestSeccomp,
-
-		GuestSeLinuxLabel: runtime.GuestSeLinuxLabel,
 
 		Experimental: runtime.Experimental,
 

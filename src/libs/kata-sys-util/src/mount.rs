@@ -43,6 +43,8 @@
 use std::fmt::Debug;
 use std::fs;
 use std::io::{self, BufRead};
+use std::os::raw::c_char;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -211,11 +213,11 @@ pub fn create_mount_destination<S: AsRef<Path>, D: AsRef<Path>, R: AsRef<Path>>(
     }
 }
 
-/// Remount a bind mount
+/// Remount a bind mount into readonly mode.
 ///
 /// # Safety
 /// Caller needs to ensure safety of the `dst` to avoid possible file path based attacks.
-pub fn bind_remount<P: AsRef<Path>>(dst: P, readonly: bool) -> Result<()> {
+pub fn bind_remount_read_only<P: AsRef<Path>>(dst: P) -> Result<()> {
     let dst = dst.as_ref();
     if dst.is_empty() {
         return Err(Error::NullMountPointPath);
@@ -224,7 +226,7 @@ pub fn bind_remount<P: AsRef<Path>>(dst: P, readonly: bool) -> Result<()> {
         .canonicalize()
         .map_err(|_e| Error::InvalidPath(dst.to_path_buf()))?;
 
-    do_rebind_mount(dst, readonly, MsFlags::empty())
+    do_rebind_mount_read_only(dst, MsFlags::empty())
 }
 
 /// Bind mount `src` to `dst` in slave mode, optionally in readonly mode if `readonly` is true.
@@ -237,7 +239,7 @@ pub fn bind_remount<P: AsRef<Path>>(dst: P, readonly: bool) -> Result<()> {
 pub fn bind_mount_unchecked<S: AsRef<Path>, D: AsRef<Path>>(
     src: S,
     dst: D,
-    readonly: bool,
+    read_only: bool,
 ) -> Result<()> {
     fail::fail_point!("bind_mount", |_| {
         Err(Error::FailureInject(
@@ -273,8 +275,8 @@ pub fn bind_mount_unchecked<S: AsRef<Path>, D: AsRef<Path>>(
         .map_err(|e| Error::Mount(PathBuf::new(), dst.to_path_buf(), e))?;
 
     // Optionally rebind into readonly mode.
-    if readonly {
-        do_rebind_mount(dst, readonly, MsFlags::empty())?;
+    if read_only {
+        do_rebind_mount_read_only(dst, MsFlags::empty())?;
     }
 
     Ok(())
@@ -354,7 +356,7 @@ impl Mounter for kata_types::mount::Mount {
         // Bind mount readonly.
         let bro_flag = MsFlags::MS_BIND | MsFlags::MS_RDONLY;
         if (o_flag & bro_flag) == bro_flag {
-            do_rebind_mount(target, true, o_flag)?;
+            do_rebind_mount_read_only(target, o_flag)?;
         }
 
         Ok(())
@@ -362,16 +364,12 @@ impl Mounter for kata_types::mount::Mount {
 }
 
 #[inline]
-fn do_rebind_mount<P: AsRef<Path>>(path: P, readonly: bool, flags: MsFlags) -> Result<()> {
+fn do_rebind_mount_read_only<P: AsRef<Path>>(path: P, flags: MsFlags) -> Result<()> {
     mount(
         Some(""),
         path.as_ref(),
         Some(""),
-        if readonly {
-            flags | MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY
-        } else {
-            flags | MsFlags::MS_BIND | MsFlags::MS_REMOUNT
-        },
+        flags | MsFlags::MS_BIND | MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY,
         Some(""),
     )
     .map_err(|e| Error::Remount(path.as_ref().to_path_buf(), e))
@@ -592,7 +590,7 @@ fn compact_lowerdir_option(opts: &[String]) -> (Option<PathBuf>, Vec<String>) {
         }
     };
 
-    let idx = idx;
+    let idx = idx as usize;
     let common_dir = match get_longest_common_prefix(&lower_opts) {
         None => return (None, n_opts),
         Some(v) => {
@@ -620,7 +618,7 @@ fn compact_lowerdir_option(opts: &[String]) -> (Option<PathBuf>, Vec<String>) {
         .iter()
         .map(|c| c.replace(&common_prefix, ""))
         .collect();
-    n_opts[idx] = format!("lowerdir={}", lower.join(":"));
+    n_opts[idx as usize] = format!("lowerdir={}", lower.join(":"));
 
     (Some(common_dir), n_opts)
 }
@@ -758,11 +756,18 @@ pub fn umount_all<P: AsRef<Path>>(mountpoint: P, lazy_umount: bool) -> Result<()
 
 // Counterpart of nix::umount2, with support of `UMOUNT_FOLLOW`.
 fn umount2<P: AsRef<Path>>(path: P, lazy_umount: bool) -> std::io::Result<()> {
-    let mut flags = MntFlags::UMOUNT_NOFOLLOW;
+    let path_ptr = path.as_ref().as_os_str().as_bytes().as_ptr() as *const c_char;
+    let mut flags = MntFlags::UMOUNT_NOFOLLOW.bits();
     if lazy_umount {
-        flags |= MntFlags::MNT_DETACH;
+        flags |= MntFlags::MNT_DETACH.bits();
     }
-    nix::mount::umount2(path.as_ref(), flags).map_err(io::Error::from)
+
+    // Safe because parameter is valid and we have checked the reuslt.
+    if unsafe { libc::umount2(path_ptr, flags) } < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -815,21 +820,21 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_bind_remount() {
+    fn test_bind_remount_read_only() {
         let tmpdir = tempfile::tempdir().unwrap();
         let tmpdir2 = tempfile::tempdir().unwrap();
 
         assert!(matches!(
-            bind_remount(PathBuf::from(""), true),
+            bind_remount_read_only(&PathBuf::from("")),
             Err(Error::NullMountPointPath)
         ));
         assert!(matches!(
-            bind_remount(PathBuf::from("../______doesn't____exist____nnn"), true),
+            bind_remount_read_only(&PathBuf::from("../______doesn't____exist____nnn")),
             Err(Error::InvalidPath(_))
         ));
 
         bind_mount_unchecked(tmpdir2.path(), tmpdir.path(), true).unwrap();
-        bind_remount(tmpdir.path(), true).unwrap();
+        bind_remount_read_only(tmpdir.path()).unwrap();
         umount_timeout(tmpdir.path().to_str().unwrap(), 0).unwrap();
     }
 
@@ -1066,7 +1071,7 @@ mod tests {
         .unwrap_err();
 
         let src = path.join("src");
-        fs::write(src, "test").unwrap();
+        fs::write(&src, "test").unwrap();
         let dst = path.join("dst");
         fs::write(&dst, "test1").unwrap();
         mount_at(

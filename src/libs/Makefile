@@ -16,9 +16,6 @@ default: build
 build:
 	cargo build --all-features
 
-static-checks-build:
-	@echo "INFO: static-checks-build do nothing.."
-
 check: clippy format
 
 clippy:

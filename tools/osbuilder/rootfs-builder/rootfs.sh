@@ -26,7 +26,6 @@ LIBC=${LIBC:-musl}
 # The kata agent enables seccomp feature.
 # However, it is not enforced by default: you need to enable that in the main configuration file.
 SECCOMP=${SECCOMP:-"yes"}
-SELINUX=${SELINUX:-"no"}
 
 lib_file="${script_dir}/../scripts/lib.sh"
 source "$lib_file"
@@ -143,11 +142,6 @@ ROOTFS_DIR          Path to the directory that is populated with the rootfs.
 
 SECCOMP             When set to "no", the kata-agent is built without seccomp capability.
                     Default value: "yes"
-
-SELINUX             When set to "yes", build the rootfs with the required packages to
-                    enable SELinux in the VM.
-                    Make sure the guest kernel is compiled with SELinux enabled.
-                    Default value: "no"
 
 USE_DOCKER          If set, build the rootfs inside a container (requires
                     Docker).
@@ -375,15 +369,6 @@ build_rootfs_distro()
 
 	echo "Required rust version: $RUST_VERSION"
 
-	if [ "${SELINUX}" == "yes" ]; then
-		if [ "${AGENT_INIT}" == "yes" ]; then
-			die "Guest SELinux with the agent init is not supported yet"
-		fi
-		if [ "${distro}" != "centos" ]; then
-			die "The guest rootfs must be CentOS to enable guest SELinux"
-		fi
-	fi
-
 	if [ -z "${USE_DOCKER}" ] && [ -z "${USE_PODMAN}" ]; then
 		info "build directly"
 		build_rootfs ${ROOTFS_DIR}
@@ -469,7 +454,6 @@ build_rootfs_distro()
 			--env AA_KBC="${AA_KBC}" \
 			--env KATA_BUILD_CC="${KATA_BUILD_CC}" \
 			--env SECCOMP="${SECCOMP}" \
-			--env SELINUX="${SELINUX}" \
 			--env DEBUG="${DEBUG}" \
 			--env HOME="/root" \
 			-v "${repo_dir}":"/kata-containers" \
@@ -619,8 +603,8 @@ EOF
 			info "Set up libseccomp"
 			detect_libseccomp_info || \
 				die "Could not detect the required libseccomp version and url"
-			export libseccomp_install_dir=$(mktemp -d -t libseccomp.XXXXXXXXXX)
-			export gperf_install_dir=$(mktemp -d -t gperf.XXXXXXXXXX)
+			libseccomp_install_dir=$(mktemp -d -t libseccomp.XXXXXXXXXX)
+			gperf_install_dir=$(mktemp -d -t gperf.XXXXXXXXXX)
 			${script_dir}/../../../ci/install_libseccomp.sh "${libseccomp_install_dir}" "${gperf_install_dir}"
 			echo "Set environment variables for the libseccomp crate to link the libseccomp library statically"
 			export LIBSECCOMP_LINK_TYPE=static
@@ -685,19 +669,11 @@ EOF
 			info "Adding agent config for ${AA_KBC}"
 			AA_KBC_PARAMS="offline_sev_kbc::null" envsubst < "${script_dir}/agent-config.toml.in" | tee "${ROOTFS_DIR}/etc/agent-config.toml"
 		fi
-		if [ "${AA_KBC}" == "online_sev_kbc" ]; then
-			info "Adding agent config for ${AA_KBC}"
-			#KBC URI will be specified in the config file via kernel params
-			AA_KBC_PARAMS="online_sev_kbc::123.123.123.123:44444" envsubst < "${script_dir}/agent-config.toml.in" | tee "${ROOTFS_DIR}/etc/agent-config.toml"
-		fi
 		attestation_agent_url="$(get_package_version_from_kata_yaml externals.attestation-agent.url)"
-		attestation_agent_version="$(get_package_version_from_kata_yaml externals.attestation-agent.version)"
+		attestation_agent_branch="$(get_package_version_from_kata_yaml externals.attestation-agent.branch)"
 		info "Install attestation-agent with KBC ${AA_KBC}"
-		#git clone "${attestation_agent_url}" --branch "${attestation_agent_tag}" --single-branch
-		git clone --depth=1 "${attestation_agent_url}" attestation-agent
+		git clone "${attestation_agent_url}" --branch "${attestation_agent_branch}"
 		pushd attestation-agent/app
-		git fetch --depth=1 origin "${attestation_agent_version}"
-		git checkout FETCH_HEAD
 		source "${HOME}/.cargo/env"
 		target="${ARCH}-unknown-linux-${LIBC}"
 		if [ "${AA_KBC}" == "eaa_kbc" ] && [ "${ARCH}" == "x86_64" ]; then

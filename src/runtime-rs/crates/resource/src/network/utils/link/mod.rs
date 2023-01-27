@@ -16,9 +16,6 @@ use std::os::unix::io::RawFd;
 
 use netlink_packet_route::link::nlas::State;
 
-#[cfg(test)]
-pub use create::net_test_utils;
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Namespace {
     NetNsPid(u32),

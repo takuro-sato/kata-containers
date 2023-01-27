@@ -6,9 +6,7 @@
 
 use std::sync::Arc;
 
-use agent::{
-    self, kata::KataAgent, types::KernelModule, Agent, GetIPTablesRequest, SetIPTablesRequest,
-};
+use agent::{self, kata::KataAgent, types::KernelModule, Agent};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use common::{
@@ -17,10 +15,7 @@ use common::{
 };
 use containerd_shim_protos::events::task::TaskOOM;
 use hypervisor::{dragonball::Dragonball, Hypervisor, HYPERVISOR_DRAGONBALL};
-use kata_types::config::{
-    default::{DEFAULT_AGENT_LOG_PORT, DEFAULT_AGENT_VSOCK_PORT},
-    TomlConfig,
-};
+use kata_types::config::TomlConfig;
 use resource::{
     manager::ManagerArgs,
     network::{NetworkConfig, NetworkWithNetNsConfig},
@@ -28,10 +23,8 @@ use resource::{
 };
 use tokio::sync::{mpsc::Sender, Mutex, RwLock};
 
-use crate::health_check::HealthCheck;
+use crate::{health_check::HealthCheck, sandbox_persist::SandboxTYPE};
 use persist::{self, sandbox_persist::Persist};
-
-pub(crate) const VIRTCONTAINER: &str = "virt_container";
 pub struct SandboxRestoreArgs {
     pub sid: String,
     pub toml_config: TomlConfig,
@@ -269,32 +262,6 @@ impl Sandbox for VirtSandbox {
         // TODO: cleanup other snadbox resource
         Ok(())
     }
-
-    async fn agent_sock(&self) -> Result<String> {
-        self.agent.agent_sock().await
-    }
-
-    async fn set_iptables(&self, is_ipv6: bool, data: Vec<u8>) -> Result<Vec<u8>> {
-        info!(sl!(), "sb: set_iptables invoked");
-        let req = SetIPTablesRequest { is_ipv6, data };
-        let resp = self
-            .agent
-            .set_ip_tables(req)
-            .await
-            .context("sandbox: failed to set iptables")?;
-        Ok(resp.data)
-    }
-
-    async fn get_iptables(&self, is_ipv6: bool) -> Result<Vec<u8>> {
-        info!(sl!(), "sb: get_iptables invoked");
-        let req = GetIPTablesRequest { is_ipv6 };
-        let resp = self
-            .agent
-            .get_ip_tables(req)
-            .await
-            .context("sandbox: failed to get iptables")?;
-        Ok(resp.data)
-    }
 }
 
 #[async_trait]
@@ -305,7 +272,7 @@ impl Persist for VirtSandbox {
     /// Save a state of Sandbox
     async fn save(&self) -> Result<Self::State> {
         let sandbox_state = crate::sandbox_persist::SandboxState {
-            sandbox_type: VIRTCONTAINER.to_string(),
+            sandbox_type: SandboxTYPE::VIRTCONTAINER,
             resource: Some(self.resource_manager.save().await?),
             hypervisor: Some(self.hypervisor.save_state().await?),
         };
@@ -328,8 +295,8 @@ impl Persist for VirtSandbox {
         let agent = Arc::new(KataAgent::new(kata_types::config::Agent {
             debug: true,
             enable_tracing: false,
-            server_port: DEFAULT_AGENT_VSOCK_PORT,
-            log_port: DEFAULT_AGENT_LOG_PORT,
+            server_port: 1024,
+            log_port: 1025,
             dial_timeout_ms: 10,
             reconnect_timeout_ms: 3_000,
             request_timeout_ms: 30_000,

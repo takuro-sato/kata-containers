@@ -7,15 +7,12 @@
 mod agent;
 mod trans;
 
-use std::{
-    os::unix::io::{IntoRawFd, RawFd},
-    sync::Arc,
-};
+use std::os::unix::io::{IntoRawFd, RawFd};
 
 use anyhow::{Context, Result};
 use kata_types::config::Agent as AgentConfig;
 use protocols::{agent_ttrpc_async as agent_ttrpc, health_ttrpc_async as health_ttrpc};
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 use ttrpc::asynchronous::Client;
 
 use crate::{log_forwarder::LogForwarder, sock};
@@ -44,25 +41,27 @@ pub(crate) struct KataAgentInner {
     log_forwarder: LogForwarder,
 }
 
+unsafe impl Send for KataAgent {}
+unsafe impl Sync for KataAgent {}
 pub struct KataAgent {
-    pub(crate) inner: Arc<RwLock<KataAgentInner>>,
+    pub(crate) inner: Mutex<KataAgentInner>,
 }
 
 impl KataAgent {
     pub fn new(config: AgentConfig) -> Self {
         KataAgent {
-            inner: Arc::new(RwLock::new(KataAgentInner {
+            inner: Mutex::new(KataAgentInner {
                 client: None,
                 client_fd: -1,
                 socket_address: "".to_string(),
                 config,
                 log_forwarder: LogForwarder::new(),
-            })),
+            }),
         }
     }
 
     pub async fn get_health_client(&self) -> Option<(health_ttrpc::HealthClient, i64, RawFd)> {
-        let inner = self.inner.read().await;
+        let inner = self.inner.lock().await;
         inner.client.as_ref().map(|c| {
             (
                 health_ttrpc::HealthClient::new(c.clone()),
@@ -73,7 +72,7 @@ impl KataAgent {
     }
 
     pub async fn get_agent_client(&self) -> Option<(agent_ttrpc::AgentServiceClient, i64, RawFd)> {
-        let inner = self.inner.read().await;
+        let inner = self.inner.lock().await;
         inner.client.as_ref().map(|c| {
             (
                 agent_ttrpc::AgentServiceClient::new(c.clone()),
@@ -84,13 +83,13 @@ impl KataAgent {
     }
 
     pub(crate) async fn set_socket_address(&self, address: &str) -> Result<()> {
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
         inner.socket_address = address.to_string();
         Ok(())
     }
 
     pub(crate) async fn connect_agent_server(&self) -> Result<()> {
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
 
         let config = sock::ConnectConfig::new(
             inner.config.dial_timeout_ms as u64,
@@ -108,7 +107,7 @@ impl KataAgent {
     }
 
     pub(crate) async fn start_log_forwarder(&self) -> Result<()> {
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
         let config = sock::ConnectConfig::new(
             inner.config.dial_timeout_ms as u64,
             inner.config.reconnect_timeout_ms as u64,
@@ -124,21 +123,12 @@ impl KataAgent {
     }
 
     pub(crate) async fn stop_log_forwarder(&self) {
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
         inner.log_forwarder.stop();
     }
 
-    pub(crate) async fn agent_sock(&self) -> Result<String> {
-        let inner = self.inner.read().await;
-        Ok(format!(
-            "{}:{}",
-            inner.socket_address.clone(),
-            inner.config.server_port
-        ))
-    }
-
     pub(crate) async fn agent_config(&self) -> AgentConfig {
-        let inner = self.inner.read().await;
+        let inner = self.inner.lock().await;
         inner.config.clone()
     }
 }

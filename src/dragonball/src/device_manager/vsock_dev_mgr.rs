@@ -70,7 +70,7 @@ pub enum VsockDeviceError {
 }
 
 /// Configuration information for a vsock device.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct VsockDeviceConfigInfo {
     /// ID of the vsock device.
     pub id: String,

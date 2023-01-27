@@ -9,7 +9,6 @@ Name | Type | Description | Notes
 **SerialNumber** | Pointer to **string** |  | [optional] 
 **Uuid** | Pointer to **string** |  | [optional] 
 **OemStrings** | Pointer to **[]string** |  | [optional] 
-**Tdx** | Pointer to **bool** |  | [optional] [default to false]
 
 ## Methods
 
@@ -154,31 +153,6 @@ SetOemStrings sets OemStrings field to given value.
 `func (o *PlatformConfig) HasOemStrings() bool`
 
 HasOemStrings returns a boolean if a field has been set.
-
-### GetTdx
-
-`func (o *PlatformConfig) GetTdx() bool`
-
-GetTdx returns the Tdx field if non-nil, zero value otherwise.
-
-### GetTdxOk
-
-`func (o *PlatformConfig) GetTdxOk() (*bool, bool)`
-
-GetTdxOk returns a tuple with the Tdx field if it's non-nil, zero value otherwise
-and a boolean to check if the value has been set.
-
-### SetTdx
-
-`func (o *PlatformConfig) SetTdx(v bool)`
-
-SetTdx sets Tdx field to given value.
-
-### HasTdx
-
-`func (o *PlatformConfig) HasTdx() bool`
-
-HasTdx returns a boolean if a field has been set.
 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

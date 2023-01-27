@@ -4,9 +4,6 @@ on:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+*'
 
-env:
-  SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.snapcraft_token }}
-
 jobs:
   release-snap:
     runs-on: ubuntu-20.04
@@ -17,16 +14,9 @@ jobs:
           fetch-depth: 0
 
       - name: Install Snapcraft
-        run: |
-          # Required to avoid snapcraft install failure
-          sudo chown root:root /
-
-          # "--classic" is needed for the GitHub action runner
-          # environment.
-          sudo snap install snapcraft --classic
-
-          # Allow other parts to access snap binaries
-          echo /snap/bin >> "$GITHUB_PATH"
+        uses: samuelmeuli/action-snapcraft@v1
+        with:
+          snapcraft_token: ${{ secrets.snapcraft_token }}
 
       - name: Build snap
         run: |

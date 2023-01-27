@@ -107,8 +107,6 @@ endef
 ##TARGET default: build code
 default: $(TARGET) show-header
 
-static-checks-build: $(GENERATED_CODE)
-
 $(TARGET): $(GENERATED_CODE) $(TARGET_PATH)
 
 $(TARGET_PATH): show-summary

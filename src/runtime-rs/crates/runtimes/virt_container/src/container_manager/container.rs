@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use agent::Agent;
@@ -16,8 +15,6 @@ use common::{
         ProcessType,
     },
 };
-use kata_sys_util::k8s::update_ephemeral_storage_type;
-
 use oci::{LinuxResources, Process as OCIProcess};
 use resource::ResourceManager;
 use tokio::sync::RwLock;
@@ -83,37 +80,26 @@ impl Container {
         let mut inner = self.inner.write().await;
         let toml_config = self.resource_manager.config().await;
         let config = &self.config;
-        let sandbox_pidns = is_pid_namespace_enabled(&spec);
         amend_spec(&mut spec, toml_config.runtime.disable_guest_seccomp).context("amend spec")?;
-
-        // get mutable root from oci spec
-        let mut root = match spec.root.as_mut() {
-            Some(root) => root,
-            None => return Err(anyhow!("spec miss root field")),
-        };
+        let sandbox_pidns = is_pid_namespace_enabled(&spec);
 
         // handler rootfs
         let rootfs = self
             .resource_manager
-            .handler_rootfs(
-                &config.container_id,
-                root,
-                &config.bundle,
-                &config.rootfs_mounts,
-            )
+            .handler_rootfs(&config.container_id, &config.bundle, &config.rootfs_mounts)
             .await
             .context("handler rootfs")?;
 
         // update rootfs
-        root.path = rootfs
-            .get_guest_rootfs_path()
-            .await
-            .context("get guest rootfs path")?;
-
-        let mut storages = vec![];
-        if let Some(storage) = rootfs.get_storage().await {
-            storages.push(storage);
-        }
+        match spec.root.as_mut() {
+            Some(spec) => {
+                spec.path = rootfs
+                    .get_guest_rootfs_path()
+                    .await
+                    .context("get guest rootfs path")?
+            }
+            None => return Err(anyhow!("spec miss root field")),
+        };
         inner.rootfs.push(rootfs);
 
         // handler volumes
@@ -123,6 +109,7 @@ impl Container {
             .await
             .context("handler volumes")?;
         let mut oci_mounts = vec![];
+        let mut storages = vec![];
         for v in volumes {
             let mut volume_mounts = v.get_volume_mount().context("get volume mount")?;
             if !volume_mounts.is_empty() {
@@ -152,10 +139,13 @@ impl Container {
         // create container
         let r = agent::CreateContainerRequest {
             process_id: agent::ContainerProcessID::new(&config.container_id, ""),
+            string_user: None,
+            devices: vec![],
             storages,
             oci: Some(spec),
+            guest_hooks: None,
             sandbox_pidns,
-            ..Default::default()
+            rootfs_mounts: vec![],
         };
 
         self.agent
@@ -264,7 +254,7 @@ impl Container {
         signal: u32,
         all: bool,
     ) -> Result<()> {
-        let mut inner = self.inner.write().await;
+        let inner = self.inner.read().await;
         inner.signal_process(container_process, signal, all).await
     }
 
@@ -388,9 +378,6 @@ fn amend_spec(spec: &mut oci::Spec, disable_guest_seccomp: bool) -> Result<()> {
     // hook should be done on host
     spec.hooks = None;
 
-    // special process K8s ephemeral volumes.
-    update_ephemeral_storage_type(spec);
-
     if let Some(linux) = spec.linux.as_mut() {
         if disable_guest_seccomp {
             linux.seccomp = None;
@@ -402,7 +389,6 @@ fn amend_spec(spec: &mut oci::Spec, disable_guest_seccomp: bool) -> Result<()> {
             resource.block_io = None;
             resource.hugepage_limits = Vec::new();
             resource.network = None;
-            resource.rdma = HashMap::new();
         }
 
         // Host pidns path does not make sense in kata. Let's just align it with
@@ -411,10 +397,7 @@ fn amend_spec(spec: &mut oci::Spec, disable_guest_seccomp: bool) -> Result<()> {
         for n in linux.namespaces.iter() {
             match n.r#type.as_str() {
                 oci::PIDNAMESPACE | oci::NETWORKNAMESPACE => continue,
-                _ => ns.push(oci::LinuxNamespace {
-                    r#type: n.r#type.clone(),
-                    path: "".to_string(),
-                }),
+                _ => ns.push(n.clone()),
             }
         }
 

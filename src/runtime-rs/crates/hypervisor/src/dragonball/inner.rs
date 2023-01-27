@@ -16,12 +16,8 @@ use dragonball::{
     vm::VmConfigInfo,
 };
 use kata_sys_util::mount;
-use kata_types::{
-    capabilities::{Capabilities, CapabilityBits},
-    config::hypervisor::Hypervisor as HypervisorConfig,
-};
-use persist::sandbox_persist::Persist;
-use shim_interface::KATA_PATH;
+use kata_types::config::hypervisor::Hypervisor as HypervisorConfig;
+use persist::{sandbox_persist::Persist, KATA_PATH};
 use std::{collections::HashSet, fs::create_dir_all, path::PathBuf};
 
 const DRAGONBALL_KERNEL: &str = "vmlinux";
@@ -62,19 +58,10 @@ pub struct DragonballInner {
 
     /// cached block device
     pub(crate) cached_block_devices: HashSet<String>,
-
-    /// dragonball capabilities
-    pub(crate) capabilities: Capabilities,
 }
 
 impl DragonballInner {
     pub fn new() -> DragonballInner {
-        let mut capabilities = Capabilities::new();
-        capabilities.set(
-            CapabilityBits::BlockDeviceSupport
-                | CapabilityBits::BlockDeviceHotplugSupport
-                | CapabilityBits::FsSharingSupport,
-        );
         DragonballInner {
             id: "".to_string(),
             vm_path: "".to_string(),
@@ -87,7 +74,6 @@ impl DragonballInner {
             vmm_instance: VmmInstance::new(""),
             run_dir: "".to_string(),
             cached_block_devices: Default::default(),
-            capabilities,
         }
     }
 
@@ -105,7 +91,6 @@ impl DragonballInner {
         kernel_params.append(&mut KernelParams::from_string(
             &self.config.boot_info.kernel_params,
         ));
-        info!(sl!(), "prepared kernel_params={:?}", kernel_params);
 
         // set boot source
         let kernel_path = self.config.boot_info.kernel.clone();
@@ -365,7 +350,6 @@ impl Persist for DragonballInner {
             run_dir: hypervisor_state.run_dir,
             pending_devices: vec![],
             cached_block_devices: hypervisor_state.cached_block_devices,
-            capabilities: Capabilities::new(),
         })
     }
 }

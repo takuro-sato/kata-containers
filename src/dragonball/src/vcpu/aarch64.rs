@@ -39,7 +39,6 @@ impl Vcpu {
     ///   vcpu thread to vmm thread.
     /// * `create_ts` - A timestamp used by the vcpu to calculate its lifetime.
     /// * `support_immediate_exit` -  whether kvm uses supports immediate_exit flag.
-    #[allow(clippy::too_many_arguments)]
     pub fn new_aarch64(
         id: u8,
         vcpu_fd: Arc<VcpuFd>,

@@ -31,9 +31,6 @@ pub mod mount;
 
 pub(crate) mod utils;
 
-/// hypervisor capabilities
-pub mod capabilities;
-
 /// Common error codes.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

@@ -53,7 +53,7 @@ func (caps *Capabilities) IsFsSharingSupported() bool {
 	return caps.flags&fsSharingSupported != 0
 }
 
-// SetFsSharingSupport sets the host filesystem sharing capability to true.
+// SetFsSharingUnsupported sets the host filesystem sharing capability to true.
 func (caps *Capabilities) SetFsSharingSupport() {
 	caps.flags |= fsSharingSupported
 }

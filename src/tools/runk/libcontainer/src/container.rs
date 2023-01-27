@@ -17,11 +17,9 @@ use nix::{
 };
 use oci::{ContainerState, State as OCIState};
 use procfs;
-use rustjail::cgroups::fs::Manager as CgroupManager;
 use rustjail::{
     container::{self, BaseContainer, LinuxContainer, EXEC_FIFO_FILENAME},
     process::{Process, ProcessOperations},
-    specconv::CreateOpts,
 };
 use scopeguard::defer;
 use slog::{debug, Logger};
@@ -36,7 +34,6 @@ pub const CONFIG_FILE_NAME: &str = "config.json";
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ContainerAction {
     Create,
-    Start,
     Run,
 }
 
@@ -85,6 +82,14 @@ impl Container {
     }
 
     pub fn kill(&self, signal: Signal, all: bool) -> Result<()> {
+        if self.state == ContainerState::Stopped {
+            return Err(anyhow!(
+                "container {} can't be killed because it is {:?}",
+                self.status.id,
+                self.state
+            ));
+        }
+
         if all {
             let pids = self.processes()?;
             for pid in pids {
@@ -94,16 +99,6 @@ impl Container {
                 kill(pid, signal)?;
             }
         } else {
-            // If --all option is not specified and the container is stopped,
-            // kill operation generates an error in accordance with the OCI runtime spec.
-            if self.state == ContainerState::Stopped {
-                return Err(anyhow!(
-                    "container {} can't be killed because it is {:?}",
-                    self.status.id,
-                    self.state
-                ));
-            }
-
             let pid = Pid::from_raw(self.status.pid);
             if status::is_process_running(pid)? {
                 kill(pid, signal)?;
@@ -238,12 +233,12 @@ impl ContainerLauncher {
         if self.init {
             self.spawn_container(action, logger).await?;
         } else {
-            if action == ContainerAction::Create {
+            if action != ContainerAction::Run {
                 return Err(anyhow!(
                     "ContainerAction::Create is used for init-container only"
                 ));
             }
-            self.spawn_process(action, logger).await?;
+            self.spawn_process(ContainerAction::Run, logger).await?;
         }
         if let Some(pid_file) = self.pid_file.as_ref() {
             fs::write(
@@ -259,15 +254,13 @@ impl ContainerLauncher {
         // State root path root/id has been created in LinuxContainer::new(),
         // so we don't have to create it again.
 
-        // Spawn a new process in the container by using the agent's codes.
         self.spawn_process(action, logger).await?;
-
         let status = self.get_status()?;
         status.save()?;
         debug!(logger, "saved status is {:?}", status);
 
         // Clean up the fifo file created by LinuxContainer, which is used for block the created process.
-        if action == ContainerAction::Run || action == ContainerAction::Start {
+        if action == ContainerAction::Run {
             let fifo_path = get_fifo_path(&status);
             if fifo_path.exists() {
                 unlink(&fifo_path)?;
@@ -312,9 +305,6 @@ impl ContainerLauncher {
             ContainerAction::Create => {
                 self.runner.start(process).await?;
             }
-            ContainerAction::Start => {
-                self.runner.exec().await?;
-            }
             ContainerAction::Run => {
                 self.runner.run(process).await?;
             }
@@ -336,63 +326,11 @@ impl ContainerLauncher {
             self.runner.created,
             self.runner
                 .cgroup_manager
-                .as_ref()
-                .as_any()?
-                .downcast_ref::<CgroupManager>()
-                .unwrap()
-                .clone(),
+                .clone()
+                .ok_or_else(|| anyhow!("cgroup manager was not present"))?,
             self.runner.config.clone(),
         )
     }
-}
-
-pub fn create_linux_container(
-    id: &str,
-    root: &Path,
-    config: CreateOpts,
-    console_socket: Option<PathBuf>,
-    logger: &Logger,
-) -> Result<LinuxContainer> {
-    let mut container = LinuxContainer::new(
-        id,
-        root.to_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("failed to convert bundle path"))?
-            .as_str(),
-        config,
-        logger,
-    )?;
-    if let Some(socket_path) = console_socket.as_ref() {
-        container.set_console_socket(socket_path)?;
-    }
-    Ok(container)
-}
-
-// Load rustjail's Linux container.
-// "uid_map_path" and "gid_map_path" are always empty, so they are not set.
-pub fn load_linux_container(
-    status: &Status,
-    console_socket: Option<PathBuf>,
-    logger: &Logger,
-) -> Result<LinuxContainer> {
-    let mut container = LinuxContainer::new(
-        &status.id,
-        &status
-            .root
-            .to_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("failed to convert a root path"))?,
-        status.config.clone(),
-        logger,
-    )?;
-    if let Some(socket_path) = console_socket.as_ref() {
-        container.set_console_socket(socket_path)?;
-    }
-
-    container.init_process_pid = status.pid;
-    container.init_process_start_time = status.process_start_time;
-    container.created = status.created.into();
-    Ok(container)
 }
 
 pub fn get_config_path<P: AsRef<Path>>(bundle: P) -> PathBuf {

@@ -10,7 +10,6 @@ use crate::config::{ConfigOps, TomlConfig};
 pub use vendor::AgentVendor;
 
 use super::default::{DEFAULT_AGENT_LOG_PORT, DEFAULT_AGENT_VSOCK_PORT};
-use crate::eother;
 
 /// agent name of Kata agent.
 pub const AGENT_NAME_KATA: &str = "kata";
@@ -109,16 +108,6 @@ fn default_health_check_timeout() -> u32 {
     90_000
 }
 
-impl Agent {
-    fn validate(&self) -> Result<()> {
-        if self.dial_timeout_ms == 0 {
-            return Err(eother!("dial_timeout_ms couldn't be 0."));
-        }
-
-        Ok(())
-    }
-}
-
 impl ConfigOps for Agent {
     fn adjust_config(conf: &mut TomlConfig) -> Result<()> {
         AgentVendor::adjust_config(conf)?;
@@ -127,9 +116,6 @@ impl ConfigOps for Agent {
 
     fn validate(conf: &TomlConfig) -> Result<()> {
         AgentVendor::validate(conf)?;
-        for (_, agent_config) in conf.agent.iter() {
-            agent_config.validate()?;
-        }
         Ok(())
     }
 }

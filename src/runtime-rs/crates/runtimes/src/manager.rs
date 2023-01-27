@@ -4,29 +4,26 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-use std::{str::from_utf8, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 
-use crate::{shim_mgmt::server::MgmtServer, static_resource::StaticResourceManager};
+use crate::static_resource::StaticResourceManager;
 use common::{
     message::Message,
     types::{Request, Response},
     RuntimeHandler, RuntimeInstance, Sandbox,
 };
-use hypervisor::Param;
 use kata_types::{annotations::Annotation, config::TomlConfig};
 #[cfg(feature = "linux")]
 use linux_container::LinuxContainer;
 use persist::sandbox_persist::Persist;
-use shim_interface::shim_mgmt::ERR_NO_SHIM_SERVER;
 use tokio::sync::{mpsc::Sender, RwLock};
+use virt_container::sandbox::SandboxRestoreArgs;
+use virt_container::sandbox::VirtSandbox;
+use virt_container::sandbox_persist::{SandboxState, SandboxTYPE};
 #[cfg(feature = "virt")]
-use virt_container::{
-    sandbox::{SandboxRestoreArgs, VirtSandbox},
-    sandbox_persist::SandboxState,
-    VirtContainer,
-};
+use virt_container::VirtContainer;
 #[cfg(feature = "wasm")]
 use wasm_container::WasmContainer;
 
@@ -77,7 +74,7 @@ impl RuntimeHandlerManagerInner {
         Ok(())
     }
 
-    async fn try_init(&mut self, spec: &oci::Spec, options: &Option<Vec<u8>>) -> Result<()> {
+    async fn try_init(&mut self, spec: &oci::Spec) -> Result<()> {
         // return if runtime instance has init
         if self.runtime_instance.is_some() {
             return Ok(());
@@ -107,22 +104,10 @@ impl RuntimeHandlerManagerInner {
             None
         };
 
-        let config = load_config(spec, options).context("load config")?;
+        let config = load_config(spec).context("load config")?;
         self.init_runtime_handler(netns, Arc::new(config))
             .await
             .context("init runtime handler")?;
-
-        // the sandbox creation can reach here only once and the sandbox is created
-        // so we can safely create the shim management socket right now
-        // the unwrap here is safe because the runtime handler is correctly created
-        let shim_mgmt_svr = MgmtServer::new(
-            &self.id,
-            self.runtime_instance.as_ref().unwrap().sandbox.clone(),
-        )
-        .context(ERR_NO_SHIM_SERVER)?;
-
-        tokio::task::spawn(Arc::new(shim_mgmt_svr).run());
-        info!(sl!(), "shim management http server starts");
 
         Ok(())
     }
@@ -157,19 +142,8 @@ impl RuntimeHandlerManager {
             toml_config: TomlConfig::default(),
             sender,
         };
-        match sandbox_state.sandbox_type.clone() {
-            #[cfg(feature = "linux")]
-            name if name == LinuxContainer::name() => {
-                // TODO :support linux container (https://github.com/kata-containers/kata-containers/issues/4905)
-                return Ok(());
-            }
-            #[cfg(feature = "wasm")]
-            name if name == WasmContainer::name() => {
-                // TODO :support wasm container (https://github.com/kata-containers/kata-containers/issues/4906)
-                return Ok(());
-            }
-            #[cfg(feature = "virt")]
-            name if name == VirtContainer::name() => {
+        match sandbox_state.sandbox_type {
+            SandboxTYPE::VIRTCONTAINER => {
                 let sandbox = VirtSandbox::restore(sandbox_args, sandbox_state)
                     .await
                     .context("failed to restore the sandbox")?;
@@ -178,7 +152,12 @@ impl RuntimeHandlerManager {
                     .await
                     .context("failed to cleanup the resource")?;
             }
-            _ => {
+            SandboxTYPE::LINUXCONTAINER => {
+                // TODO :support linux container (https://github.com/kata-containers/kata-containers/issues/4905)
+                return Ok(());
+            }
+            SandboxTYPE::WASMCONTAINER => {
+                // TODO :support wasm container (https://github.com/kata-containers/kata-containers/issues/4906)
                 return Ok(());
             }
         }
@@ -193,26 +172,18 @@ impl RuntimeHandlerManager {
             .ok_or_else(|| anyhow!("runtime not ready"))
     }
 
-    async fn try_init_runtime_instance(
-        &self,
-        spec: &oci::Spec,
-        options: &Option<Vec<u8>>,
-    ) -> Result<()> {
+    async fn try_init_runtime_instance(&self, spec: &oci::Spec) -> Result<()> {
         let mut inner = self.inner.write().await;
-        inner.try_init(spec, options).await
+        inner.try_init(spec).await
     }
 
     pub async fn handler_message(&self, req: Request) -> Result<Response> {
-        if let Request::CreateContainer(container_config) = req {
+        if let Request::CreateContainer(req) = req {
             // get oci spec
-            let bundler_path = format!(
-                "{}/{}",
-                container_config.bundle,
-                oci::OCI_SPEC_CONFIG_FILE_NAME
-            );
+            let bundler_path = format!("{}/{}", req.bundle, oci::OCI_SPEC_CONFIG_FILE_NAME);
             let spec = oci::Spec::load(&bundler_path).context("load spec")?;
 
-            self.try_init_runtime_instance(&spec, &container_config.options)
+            self.try_init_runtime_instance(&spec)
                 .await
                 .context("try init runtime instance")?;
             let instance = self
@@ -222,10 +193,9 @@ impl RuntimeHandlerManager {
 
             let shim_pid = instance
                 .container_manager
-                .create_container(container_config, spec)
+                .create_container(req, spec)
                 .await
                 .context("create container")?;
-
             Ok(Response::CreateContainer(shim_pid))
         } else {
             self.handler_request(req).await.context("handler request")
@@ -328,20 +298,12 @@ impl RuntimeHandlerManager {
 /// 2. shimv2 create task option
 /// TODO: https://github.com/kata-containers/kata-containers/issues/3961
 /// 3. environment
-fn load_config(spec: &oci::Spec, option: &Option<Vec<u8>>) -> Result<TomlConfig> {
+fn load_config(spec: &oci::Spec) -> Result<TomlConfig> {
     const KATA_CONF_FILE: &str = "KATA_CONF_FILE";
     let annotation = Annotation::new(spec.annotations.clone());
     let config_path = if let Some(path) = annotation.get_sandbox_config_path() {
         path
     } else if let Ok(path) = std::env::var(KATA_CONF_FILE) {
-        path
-    } else if let Some(option) = option {
-        // get rid of the special characters in options to get the config path
-        let path = if option.len() > 2 {
-            from_utf8(&option[2..])?.to_string()
-        } else {
-            String::from("")
-        };
         path
     } else {
         String::from("")
@@ -350,10 +312,6 @@ fn load_config(spec: &oci::Spec, option: &Option<Vec<u8>>) -> Result<TomlConfig>
     let (mut toml_config, _) =
         TomlConfig::load_from_file(&config_path).context("load toml config")?;
     annotation.update_config_by_annotation(&mut toml_config)?;
-    update_agent_kernel_params(&mut toml_config)?;
-
-    // validate configuration and return the error
-    toml_config.validate()?;
 
     // Sandbox sizing information *may* be provided in two scenarios:
     //   1. The upper layer runtime (ie, containerd or crio) provide sandbox sizing information as an annotation
@@ -373,21 +331,4 @@ fn load_config(spec: &oci::Spec, option: &Option<Vec<u8>>) -> Result<TomlConfig>
     }
     info!(sl!(), "get config content {:?}", &toml_config);
     Ok(toml_config)
-}
-
-// this update the agent-specfic kernel parameters into hypervisor's bootinfo
-// the agent inside the VM will read from file cmdline to get the params and function
-fn update_agent_kernel_params(config: &mut TomlConfig) -> Result<()> {
-    let mut params = vec![];
-    if let Ok(kv) = config.get_agent_kernel_params() {
-        for (k, v) in kv.into_iter() {
-            if let Ok(s) = Param::new(k.as_str(), v.as_str()).to_string() {
-                params.push(s);
-            }
-        }
-        if let Some(h) = config.hypervisor.get_mut(&config.runtime.hypervisor_name) {
-            h.boot_info.add_kernel_params(params);
-        }
-    }
-    Ok(())
 }

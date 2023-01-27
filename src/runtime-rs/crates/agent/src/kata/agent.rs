@@ -40,10 +40,6 @@ impl AgentManager for KataAgent {
         self.stop_log_forwarder().await;
     }
 
-    async fn agent_sock(&self) -> Result<String> {
-        self.agent_sock().await
-    }
-
     async fn agent_config(&self) -> AgentConfig {
         self.agent_config().await
     }
@@ -100,9 +96,9 @@ impl_agent!(
     stats_container | crate::ContainerID | crate::StatsContainerResponse | None,
     pause_container | crate::ContainerID | crate::Empty | None,
     resume_container | crate::ContainerID | crate::Empty | None,
-    write_stdin | crate::WriteStreamRequest | crate::WriteStreamResponse | Some(0),
-    read_stdout | crate::ReadStreamRequest | crate::ReadStreamResponse | Some(0),
-    read_stderr | crate::ReadStreamRequest | crate::ReadStreamResponse | Some(0),
+    write_stdin | crate::WriteStreamRequest | crate::WriteStreamResponse | None,
+    read_stdout | crate::ReadStreamRequest | crate::ReadStreamResponse | None,
+    read_stderr | crate::ReadStreamRequest | crate::ReadStreamResponse | None,
     close_stdin | crate::CloseStdinRequest | crate::Empty | None,
     tty_win_resize | crate::TtyWinResizeRequest | crate::Empty | None,
     update_interface | crate::UpdateInterfaceRequest | crate::Interface | None,
@@ -113,7 +109,5 @@ impl_agent!(
     create_sandbox | crate::CreateSandboxRequest | crate::Empty | None,
     destroy_sandbox | crate::Empty | crate::Empty | None,
     copy_file | crate::CopyFileRequest | crate::Empty | None,
-    get_oom_event | crate::Empty | crate::OomEventResponse | Some(0),
-    get_ip_tables | crate::GetIPTablesRequest | crate::GetIPTablesResponse | None,
-    set_ip_tables | crate::SetIPTablesRequest | crate::SetIPTablesResponse | None
+    get_oom_event | crate::Empty | crate::OomEventResponse | Some(0)
 );

@@ -18,7 +18,6 @@ pub(crate) fn ensure_dir_exist(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Bind mount the original path to the runtime directory.
 pub(crate) fn share_to_guest(
     // absolute path for source
     source: &str,
@@ -28,7 +27,6 @@ pub(crate) fn share_to_guest(
     cid: &str,
     readonly: bool,
     is_volume: bool,
-    is_rafs: bool,
 ) -> Result<String> {
     let host_dest = do_get_host_path(target, sid, cid, is_volume, false);
     mount::bind_mount_unchecked(source, &host_dest, readonly)
@@ -38,39 +36,22 @@ pub(crate) fn share_to_guest(
     // to remount the read only dir mount point directly.
     if readonly {
         let dst = do_get_host_path(target, sid, cid, is_volume, true);
-        mount::bind_remount(dst, readonly).context("bind remount readonly")?;
+        mount::bind_remount_read_only(&dst).context("bind remount readonly")?;
     }
 
-    Ok(do_get_guest_path(target, cid, is_volume, is_rafs))
+    Ok(do_get_guest_path(target, cid, is_volume))
 }
-// Shared path handling:
-// 1. create two directories for each sandbox:
-// -. /run/kata-containers/shared/sandboxes/$sbx_id/rw/, a host/guest shared directory which is rw
-// -. /run/kata-containers/shared/sandboxes/$sbx_id/ro/, a host/guest shared directory (virtiofs source dir) which is ro
-//
-// 2. /run/kata-containers/shared/sandboxes/$sbx_id/rw/ is bind mounted readonly to /run/kata-containers/shared/sandboxes/$sbx_id/ro/, so guest cannot modify it
-//
-// 3. host-guest shared files/directories are mounted one-level under /run/kata-containers/shared/sandboxes/$sbx_id/rw/passthrough and thus present to guest at one level under run/kata-containers/shared/containers/passthrough.
+
 pub(crate) fn get_host_ro_shared_path(id: &str) -> PathBuf {
     Path::new(KATA_HOST_SHARED_DIR).join(id).join("ro")
 }
 
-pub fn get_host_rw_shared_path(sid: &str) -> PathBuf {
-    Path::new(KATA_HOST_SHARED_DIR).join(sid).join("rw")
+pub(crate) fn get_host_rw_shared_path(id: &str) -> PathBuf {
+    Path::new(KATA_HOST_SHARED_DIR).join(id).join("rw")
 }
 
-fn do_get_guest_any_path(
-    target: &str,
-    cid: &str,
-    is_volume: bool,
-    is_rafs: bool,
-    is_virtiofs: bool,
-) -> String {
-    let dir = if is_rafs {
-        RAFS_DIR
-    } else {
-        PASSTHROUGH_FS_DIR
-    };
+fn do_get_guest_any_path(target: &str, cid: &str, is_volume: bool, is_virtiofs: bool) -> String {
+    let dir = PASSTHROUGH_FS_DIR;
     let guest_share_dir = if is_virtiofs {
         Path::new("/").to_path_buf()
     } else {
@@ -85,15 +66,11 @@ fn do_get_guest_any_path(
     path.to_str().unwrap().to_string()
 }
 
-pub fn do_get_guest_path(target: &str, cid: &str, is_volume: bool, is_rafs: bool) -> String {
-    do_get_guest_any_path(target, cid, is_volume, is_rafs, false)
+fn do_get_guest_path(target: &str, cid: &str, is_volume: bool) -> String {
+    do_get_guest_any_path(target, cid, is_volume, false)
 }
 
-pub fn do_get_guest_share_path(target: &str, cid: &str, is_rafs: bool) -> String {
-    do_get_guest_any_path(target, cid, false, is_rafs, true)
-}
-
-pub(crate) fn do_get_host_path(
+fn do_get_host_path(
     target: &str,
     sid: &str,
     cid: &str,

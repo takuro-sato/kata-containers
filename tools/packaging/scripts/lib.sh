@@ -8,21 +8,12 @@
 export GOPATH=${GOPATH:-${HOME}/go}
 export tests_repo="${tests_repo:-github.com/kata-containers/tests}"
 export tests_repo_dir="$GOPATH/src/$tests_repo"
-export CC_BUILDER_REGISTRY="quay.io/kata-containers/cc-builders"
-export PUSH_TO_REGISTRY="${PUSH_TO_REGISTRY:-"no"}"
 
 this_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-export repo_root_dir="$(cd "${this_script_dir}/../../../" && pwd)"
 
 short_commit_length=10
 
 hub_bin="hub-bin"
-
-# Jenkins URL
-jenkins_url="http://jenkins.katacontainers.io"
-# Path where cached artifacts are found.
-cached_artifacts_path="lastSuccessfulBuild/artifact/artifacts"
 
 clone_tests_repo() {
 	# KATA_CI_NO_NETWORK is (has to be) ignored if there is
@@ -121,121 +112,4 @@ get_config_version() {
 	else
 		die "failed to find ${config_version_file}"
 	fi
-}
-
-# $1 - The file we're looking for the last modification
-get_last_modification() {
-	local file="${1}"
-
-	pushd ${repo_root_dir} &> /dev/null
-	# This is a workaround needed for when running this code on Jenkins
-	git config --global --add safe.directory ${repo_root_dir} &> /dev/null
-
-	dirty=""
-	[ $(git status --porcelain | grep "${file#${repo_root_dir}/}" | wc -l) -gt 0 ] && dirty="-dirty"
-
-	echo "$(git log -1 --pretty=format:"%H" ${file})${dirty}"
-	popd &> /dev/null
-}
-
-# $1 - The tag to be pushed to the registry
-# $2 - "yes" to use sudo, "no" otherwise
-push_to_registry() {
-	local tag="${1}"
-	local use_sudo="${2:-"yes"}"
-
-	if [ "${PUSH_TO_REGISTRY}" == "yes" ]; then
-		if [ "${use_sudo}" == "yes" ]; then
-			sudo docker push ${tag}
-		else
-			docker push ${tag}
-		fi
-	fi
-}
-
-sha256sum_from_files() {
-	local files_in=${@:-}
-	local files=""
-	local shasum=""
-
-	# Process the input files:
-	#  - discard the files/directories that don't exist.
-	#  - find the files if it is a directory
-	for f in $files_in; do
-		if [ -d "$f" ]; then
-			files+=" $(find $f -type f)"
-		elif [ -f "$f" ]; then
-			files+=" $f"
-		fi
-	done
-	# Return in case there is none input files.
-	[ -n "$files" ] || return 0
-
-	# Alphabetically sorting the files.
-	files="$(echo $files | tr ' ' '\n' | LC_ALL=C sort -u)"
-	# Concate the files and calculate a hash.
-	shasum="$(cat $files | sha256sum -b)" || true
-	if [ -n "$shasum" ];then
-		# Return only the SHA field.
-		echo $(awk '{ print $1 }' <<< $shasum)
-	fi
-}
-
-calc_qemu_files_sha256sum() {
-	local files="${this_script_dir}/../qemu \
-		${this_script_dir}/../static-build/qemu.blacklist \
-		${this_script_dir}/../static-build/scripts"
-
-	sha256sum_from_files "$files"
-}
-
-get_initramfs_image_name() {
-	initramfs_script_dir="${this_script_dir}/../static-build/initramfs"
-	echo "${CC_BUILDER_REGISTRY}:initramfs-cryptosetup$(get_from_kata_deps "externals.cryptsetup.version")-lvm2-$(get_from_kata_deps "externals.lvm2.version")-$(get_last_modification ${initramfs_script_dir})-$(uname -m)"
-}
-
-get_kernel_image_name() {
-	kernel_script_dir="${this_script_dir}/../static-build/kernel"
-	echo "${CC_BUILDER_REGISTRY}:kernel-$(get_last_modification ${kernel_script_dir})-$(uname -m)"
-}
-
-get_ovmf_image_name() {
-	ovmf_script_dir="${this_script_dir}/../static-build/ovmf"
-	echo "${CC_BUILDER_REGISTRY}:ovmf-$(get_last_modification ${ovmf_script_dir})-$(uname -m)"
-}
-
-get_qemu_image_name() {
-	qemu_script_dir="${this_script_dir}/../static-build/qemu"
-	echo "${CC_BUILDER_REGISTRY}:qemu-$(get_last_modification ${qemu_script_dir})-$(uname -m)"
-}
-
-get_shim_v2_image_name() {
-	shim_v2_script_dir="${this_script_dir}/../static-build/shim-v2"
-	echo "${CC_BUILDER_REGISTRY}:shim-v2-go-$(get_from_kata_deps "languages.golang.meta.newest-version")-rust-$(get_from_kata_deps "languages.rust.meta.newest-version")-$(get_last_modification ${shim_v2_script_dir})-$(uname -m)"
-}
-
-get_td_shim_image_name() {
-	td_shim_script_dir="${this_script_dir}/../static-build/td-shim"
-	echo "${CC_BUILDER_REGISTRY}:td-shim-$(get_last_modification ${td_shim_script_dir})-$(uname -m)"
-}
-
-get_virtiofsd_image_name() {
-	ARCH=$(uname -m)
-	case ${ARCH} in
-	        "aarch64")
-	                libc="musl"
-	                ;;
-	        "ppc64le")
-	                libc="gnu"
-	                ;;
-	        "s390x")
-	                libc="gnu"
-	                ;;
-	        "x86_64")
-	                libc="musl"
-	                ;;
-	esac
-
-	virtiofsd_script_dir="${this_script_dir}/../static-build/virtiofsd"
-	echo "${CC_BUILDER_REGISTRY}:virtiofsd-$(get_from_kata_deps "externals.virtiofsd.toolchain")-${libc}-$(get_last_modification ${virtiofsd_script_dir})-$(uname -m)"
 }

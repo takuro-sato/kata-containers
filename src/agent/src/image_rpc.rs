@@ -35,6 +35,7 @@ const OCICRYPT_CONFIG_PATH: &str = "/tmp/ocicrypt_config.json";
 const KATA_CC_IMAGE_WORK_DIR: &str = "/run/image/";
 const KATA_CC_PAUSE_BUNDLE: &str = "/pause_bundle";
 const CONFIG_JSON: &str = "config.json";
+const OFFLINE_FS_KBC_RESOURCE_PATH: &str = "/etc/aa-offline_fs_kbc-resources.json";
 
 // Convenience macro to obtain the scope logger
 macro_rules! sl {
@@ -62,8 +63,8 @@ impl ImageService {
     fn pull_image_from_registry(
         image: &str,
         cid: &str,
-        source_creds: Option<&str>,
-        policy_path: Option<&str>,
+        source_creds: &Option<&str>,
+        policy_path: &Option<&String>,
         aa_kbc_params: &str,
     ) -> Result<()> {
         let source_image = format!("{}{}", "docker://", image);
@@ -156,7 +157,7 @@ impl ImageService {
         }
 
         info!(sl!(), "use guest pause image cid {:?}", cid);
-        let pause_bundle = Path::new(CONTAINER_BASE).join(cid);
+        let pause_bundle = Path::new(CONTAINER_BASE).join(&cid);
         let pause_rootfs = pause_bundle.join("rootfs");
         let pause_config = pause_bundle.join(CONFIG_JSON);
         let pause_binary = pause_rootfs.join("pause");
@@ -176,7 +177,7 @@ impl ImageService {
 
     // If we fail to start the AA, Skopeo/ocicrypt won't be able to unwrap keys
     // and container decryption will fail.
-    fn init_attestation_agent() -> Result<()> {
+    fn init_attestation_agent() {
         let config_path = OCICRYPT_CONFIG_PATH;
 
         // The image will need to be encrypted using a keyprovider
@@ -189,8 +190,10 @@ impl ImageService {
             }
         });
 
-        let mut config_file = fs::File::create(config_path)?;
-        config_file.write_all(ocicrypt_config.to_string().as_bytes())?;
+        let mut config_file = fs::File::create(config_path).unwrap();
+        config_file
+            .write_all(ocicrypt_config.to_string().as_bytes())
+            .unwrap();
 
         // The Attestation Agent will run for the duration of the guest.
         Command::new(AA_PATH)
@@ -198,26 +201,8 @@ impl ImageService {
             .arg(AA_KEYPROVIDER_PORT)
             .arg("--getresource_sock")
             .arg(AA_GETRESOURCE_PORT)
-            .spawn()?;
-        Ok(())
-    }
-
-    /// Determines the container id (cid) to use for a given request.
-    ///
-    /// If the request specifies a non-empty id, use it; otherwise derive it from the image path.
-    /// In either case, verify that the chosen id is valid.
-    fn cid_from_request(req: &image::PullImageRequest) -> Result<String> {
-        let req_cid = req.get_container_id();
-        let cid = if !req_cid.is_empty() {
-            req_cid.to_string()
-        } else if let Some(last) = req.get_image().rsplit('/').next() {
-            // ':' have special meaning for umoci during upack
-            last.replace(':', "_")
-        } else {
-            return Err(anyhow!("Invalid image name. {}", req.get_image()));
-        };
-        verify_cid(&cid)?;
-        Ok(cid)
+            .spawn()
+            .unwrap();
     }
 
     async fn pull_image(&self, req: &image::PullImageRequest) -> Result<String> {
@@ -233,19 +218,33 @@ impl ImageService {
             env::set_var("NO_PROXY", no_proxy);
         }
 
-        let cid = Self::cid_from_request(req)?;
         let image = req.get_image();
+        let mut cid = req.get_container_id().to_string();
+
+        let aa_kbc_params = &AGENT_CONFIG.read().await.aa_kbc_params;
+
+        if cid.is_empty() {
+            let v: Vec<&str> = image.rsplit('/').collect();
+            if !v[0].is_empty() {
+                // ':' have special meaning for umoci during upack
+                cid = v[0].replace(':', "_");
+            } else {
+                return Err(anyhow!("Invalid image name. {}", image));
+            }
+        } else {
+            verify_cid(&cid)?;
+        }
+
         // Can switch to use cid directly when we remove umoci
         let v: Vec<&str> = image.rsplit('/').collect();
         if !v[0].is_empty() && v[0].starts_with("pause:") {
             Self::unpack_pause_image(&cid)?;
 
             let mut sandbox = self.sandbox.lock().await;
-            sandbox.images.insert(String::from(image), cid);
+            sandbox.images.insert(String::from(image), cid.to_string());
             return Ok(image.to_owned());
         }
 
-        let aa_kbc_params = &AGENT_CONFIG.read().await.aa_kbc_params;
         if !aa_kbc_params.is_empty() {
             match self.attestation_agent_started.compare_exchange_weak(
                 false,
@@ -253,7 +252,7 @@ impl ImageService {
                 Ordering::SeqCst,
                 Ordering::SeqCst,
             ) {
-                Ok(_) => Self::init_attestation_agent()?,
+                Ok(_) => Self::init_attestation_agent(),
                 Err(_) => info!(sl!(), "Attestation Agent already running"),
             }
         }
@@ -263,29 +262,25 @@ impl ImageService {
         if Path::new(SKOPEO_PATH).exists() {
             // Read the policy path from the agent config
             let config_policy_path = &AGENT_CONFIG.read().await.container_policy_path;
-            let policy_path =
-                (!config_policy_path.is_empty()).then_some(config_policy_path.as_str());
-            Self::pull_image_from_registry(image, &cid, source_creds, policy_path, aa_kbc_params)?;
+            let policy_path = (!config_policy_path.is_empty()).then(|| config_policy_path);
+
+            Self::pull_image_from_registry(
+                image,
+                &cid,
+                &source_creds,
+                &policy_path,
+                aa_kbc_params,
+            )?;
+
             Self::unpack_image(&cid)?;
         } else {
-            // Read enable signature verification from the agent config and set it in the image_client
-            let enable_signature_verification =
-                &AGENT_CONFIG.read().await.enable_signature_verification;
-            info!(
-                sl!(),
-                "enable_signature_verification set to: {}", enable_signature_verification
-            );
-            self.image_client.lock().await.config.security_validate =
-                *enable_signature_verification;
-
-            // If the attestation-agent is being used, then enable the authenticated credentials support
-            //TODO tidy logic once skopeo is removed to combine with aa_kbc_params check above
-            info!(
-                sl!(),
-                "image_client.config.auth set to: {}",
-                !aa_kbc_params.is_empty()
-            );
-            self.image_client.lock().await.config.auth = !aa_kbc_params.is_empty();
+            // TODO #4888 - Create a better way to enable signature verification. This is temporary for the PoC
+            if aa_kbc_params.eq("offline_fs_kbc::null")
+                && Path::new(OFFLINE_FS_KBC_RESOURCE_PATH).exists()
+            {
+                info!(sl!(), "Enabling security_validate on image_client");
+                self.image_client.lock().await.config.security_validate = true;
+            }
 
             let bundle_path = Path::new(CONTAINER_BASE).join(&cid);
             fs::create_dir_all(&bundle_path)?;
@@ -300,15 +295,10 @@ impl ImageService {
                 .await
                 .pull_image(image, &bundle_path, &source_creds, &Some(&decrypt_config))
                 .await?;
-
-            info!(
-                sl!(),
-                "pull and unpack image {:?}, with image-rs succeeded ", cid
-            );
         }
 
         let mut sandbox = self.sandbox.lock().await;
-        sandbox.images.insert(String::from(image), cid);
+        sandbox.images.insert(String::from(image), cid.to_string());
         Ok(image.to_owned())
     }
 }
@@ -328,99 +318,6 @@ impl protocols::image_ttrpc_async::Image for ImageService {
             }
             Err(e) => {
                 return Err(ttrpc_error(ttrpc::Code::INTERNAL, e.to_string()));
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ImageService;
-    use protocols::image;
-
-    #[test]
-    fn test_cid_from_request() {
-        struct Case {
-            cid: &'static str,
-            image: &'static str,
-            result: Option<&'static str>,
-        }
-
-        let cases = [
-            Case {
-                cid: "",
-                image: "",
-                result: None,
-            },
-            Case {
-                cid: "..",
-                image: "",
-                result: None,
-            },
-            Case {
-                cid: "",
-                image: "..",
-                result: None,
-            },
-            Case {
-                cid: "",
-                image: "abc/..",
-                result: None,
-            },
-            Case {
-                cid: "",
-                image: "abc/",
-                result: None,
-            },
-            Case {
-                cid: "",
-                image: "../abc",
-                result: Some("abc"),
-            },
-            Case {
-                cid: "",
-                image: "../9abc",
-                result: Some("9abc"),
-            },
-            Case {
-                cid: "some-string.1_2",
-                image: "",
-                result: Some("some-string.1_2"),
-            },
-            Case {
-                cid: "0some-string.1_2",
-                image: "",
-                result: Some("0some-string.1_2"),
-            },
-            Case {
-                cid: "a:b",
-                image: "",
-                result: None,
-            },
-            Case {
-                cid: "",
-                image: "prefix/a:b",
-                result: Some("a_b"),
-            },
-            Case {
-                cid: "",
-                image: "/a/b/c/d:e",
-                result: Some("d_e"),
-            },
-        ];
-
-        for case in &cases {
-            let mut req = image::PullImageRequest::new();
-            req.set_image(case.image.to_string());
-            req.set_container_id(case.cid.to_string());
-            let ret = ImageService::cid_from_request(&req);
-            match (case.result, ret) {
-                (Some(expected), Ok(actual)) => assert_eq!(expected, actual),
-                (None, Err(_)) => (),
-                (None, Ok(r)) => panic!("Expected an error, got {}", r),
-                (Some(expected), Err(e)) => {
-                    panic!("Expected {} but got an error ({})", expected, e)
-                }
             }
         }
     }

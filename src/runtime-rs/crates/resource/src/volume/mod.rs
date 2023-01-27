@@ -8,7 +8,6 @@ mod block_volume;
 mod default_volume;
 mod share_fs_volume;
 mod shm_volume;
-use async_trait::async_trait;
 
 use std::{sync::Arc, vec::Vec};
 
@@ -17,11 +16,10 @@ use tokio::sync::RwLock;
 
 use crate::share_fs::ShareFs;
 
-#[async_trait]
 pub trait Volume: Send + Sync {
     fn get_volume_mount(&self) -> Result<Vec<oci::Mount>>;
     fn get_storage(&self) -> Result<Vec<agent::Storage>>;
-    async fn cleanup(&self) -> Result<()>;
+    fn cleanup(&self) -> Result<()>;
 }
 
 #[derive(Default)]

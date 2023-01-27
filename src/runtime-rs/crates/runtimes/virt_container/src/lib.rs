@@ -21,12 +21,8 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use common::{message::Message, RuntimeHandler, RuntimeInstance};
 use hypervisor::{dragonball::Dragonball, Hypervisor, HYPERVISOR_DRAGONBALL};
-use hypervisor::{qemu::Qemu, HYPERVISOR_QEMU};
-use kata_types::config::{
-    hypervisor::register_hypervisor_plugin, DragonballConfig, QemuConfig, TomlConfig,
-};
+use kata_types::config::{hypervisor::register_hypervisor_plugin, DragonballConfig, TomlConfig};
 use resource::ResourceManager;
-use sandbox::VIRTCONTAINER;
 use tokio::sync::mpsc::Sender;
 
 unsafe impl Send for VirtContainer {}
@@ -39,13 +35,11 @@ impl RuntimeHandler for VirtContainer {
         // register
         let dragonball_config = Arc::new(DragonballConfig::new());
         register_hypervisor_plugin("dragonball", dragonball_config);
-        let qemu_config = Arc::new(QemuConfig::new());
-        register_hypervisor_plugin("qemu", qemu_config);
         Ok(())
     }
 
     fn name() -> String {
-        VIRTCONTAINER.to_string()
+        "virt_container".to_string()
     }
 
     fn new_handler() -> Arc<dyn RuntimeHandler> {
@@ -111,13 +105,6 @@ async fn new_hypervisor(toml_config: &TomlConfig) -> Result<Arc<dyn Hypervisor>>
                 .await;
             Ok(Arc::new(hypervisor))
         }
-        HYPERVISOR_QEMU => {
-            let mut hypervisor = Qemu::new();
-            hypervisor
-                .set_hypervisor_config(hypervisor_config.clone())
-                .await;
-            Ok(Arc::new(hypervisor))
-        }
         _ => Err(anyhow!("Unsupported hypervisor {}", &hypervisor_name)),
     }
 }
@@ -159,29 +146,6 @@ agent_name="kata"
         let toml_config = default_toml_config_agent().unwrap();
 
         let res = new_agent(&toml_config);
-        assert!(res.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_new_hypervisor() {
-        VirtContainer::init().unwrap();
-
-        let toml_config = {
-            let config_content = r#"
-[hypervisor.qemu]
-path = "/bin/echo"
-kernel = "/bin/echo"
-image = "/bin/echo"
-firmware = ""
-
-[runtime]
-hypervisor_name="qemu"
-"#;
-            TomlConfig::load(config_content).map_err(|e| anyhow!("can not load config toml: {}", e))
-        }
-        .unwrap();
-
-        let res = new_hypervisor(&toml_config).await;
         assert!(res.is_ok());
     }
 }

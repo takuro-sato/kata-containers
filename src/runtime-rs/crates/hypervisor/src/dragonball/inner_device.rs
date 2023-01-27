@@ -15,8 +15,8 @@ use dragonball::api::v1::{
 
 use super::DragonballInner;
 use crate::{
-    device::Device, HybridVsockConfig, NetworkConfig, ShareFsDeviceConfig, ShareFsMountConfig,
-    ShareFsMountType, ShareFsOperation, VmmState,
+    device::Device, NetworkConfig, ShareFsDeviceConfig, ShareFsMountConfig, ShareFsMountType,
+    ShareFsOperation, VmmState, VsockConfig,
 };
 
 const MB_TO_B: u32 = 1024 * 1024;
@@ -56,16 +56,13 @@ impl DragonballInner {
                     config.no_drop,
                 )
                 .context("add block device"),
-            Device::HybridVsock(config) => self.add_hvsock(&config).context("add vsock"),
+            Device::Vsock(config) => self.add_vsock(&config).context("add vsock"),
             Device::ShareFsDevice(config) => self
                 .add_share_fs_device(&config)
                 .context("add share fs device"),
             Device::ShareFsMount(config) => self
                 .add_share_fs_mount(&config)
                 .context("add share fs mount"),
-            Device::Vsock(_) => {
-                todo!()
-            }
         }
     }
 
@@ -142,7 +139,7 @@ impl DragonballInner {
             .context("insert network device")
     }
 
-    fn add_hvsock(&mut self, config: &HybridVsockConfig) -> Result<()> {
+    fn add_vsock(&mut self, config: &VsockConfig) -> Result<()> {
         let vsock_cfg = VsockDeviceConfigInfo {
             id: String::from("root"),
             guest_cid: config.guest_cid,
@@ -226,7 +223,6 @@ impl DragonballInner {
             },
             cache_size: (self.config.shared_fs.virtio_fs_cache_size as u64)
                 .saturating_mul(MB_TO_B as u64),
-            xattr: true,
             ..Default::default()
         };
         self.do_add_fs_device(&config.fs_type, &mut fs_cfg)
@@ -268,7 +264,7 @@ impl DragonballInner {
             fstype: Some(fstype.to_string()),
             source: Some(config.source.clone()),
             mountpoint: config.mount_point.clone(),
-            config: config.config.clone(),
+            config: None,
             tag: config.tag.clone(),
             prefetch_list_path: config.prefetch_list_path.clone(),
             dax_threshold_size_kb: None,

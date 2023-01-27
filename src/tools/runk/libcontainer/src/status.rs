@@ -141,7 +141,7 @@ pub fn is_process_running(pid: Pid) -> Result<bool> {
     match kill(pid, None) {
         Err(errno) => {
             if errno != Errno::ESRCH {
-                return Err(anyhow!("failed to kill process {}: {:?}", pid, errno));
+                return Err(anyhow!("no such process"));
             }
             Ok(false)
         }

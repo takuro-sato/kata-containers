@@ -8,6 +8,7 @@ package qemu
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -43,12 +44,12 @@ func CreateCloudInitISO(ctx context.Context, scratchDir, isoPath string,
 			dataDirPath, err)
 	}
 
-	err = os.WriteFile(metaDataPath, metaData, 0644)
+	err = ioutil.WriteFile(metaDataPath, metaData, 0644)
 	if err != nil {
 		return fmt.Errorf("unable to create %s : %v", metaDataPath, err)
 	}
 
-	err = os.WriteFile(userDataPath, userData, 0644)
+	err = ioutil.WriteFile(userDataPath, userData, 0644)
 	if err != nil {
 		return fmt.Errorf("unable to create %s : %v", userDataPath, err)
 	}

@@ -243,6 +243,19 @@ type ContainerConfig struct {
 // SandboxConfig is a sandbox configuration.
 // Refs: virtcontainers/sandbox.go:SandboxConfig
 type SandboxConfig struct {
+	// Information for fields not saved:
+	// * Annotation: this is kind of casual data, we don't need casual data in persist file,
+	// 				if you know this data needs to persist, please gives it
+	//				a specific field
+
+	ContainerConfigs []ContainerConfig
+
+	// SandboxBindMounts - list of paths to mount into guest
+	SandboxBindMounts []string
+
+	// Experimental enables experimental features
+	Experimental []string
+
 	// Cgroups specifies specific cgroup settings for the various subsystems that the container is
 	// placed into to limit the resources the container has available
 	Cgroups *configs.Cgroup `json:"cgroups"`
@@ -252,24 +265,8 @@ type SandboxConfig struct {
 
 	KataShimConfig *ShimConfig
 
-	// Custom SELinux security policy to the container process inside the VM
-	GuestSeLinuxLabel string
-
-	HypervisorType string
-
-	// SandboxBindMounts - list of paths to mount into guest
-	SandboxBindMounts []string
-
-	// Experimental enables experimental features
-	Experimental []string
-
-	// Information for fields not saved:
-	// * Annotation: this is kind of casual data, we don't need casual data in persist file,
-	// if you know this data needs to persist, please gives it a specific field
-	ContainerConfigs []ContainerConfig
-
-	NetworkConfig NetworkConfig
-
+	HypervisorType   string
+	NetworkConfig    NetworkConfig
 	HypervisorConfig HypervisorConfig
 
 	ShmSize uint64

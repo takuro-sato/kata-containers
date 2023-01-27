@@ -16,12 +16,11 @@ pub mod types;
 pub use types::{
     ARPNeighbor, ARPNeighbors, AddArpNeighborRequest, BlkioStatsEntry, CheckRequest,
     CloseStdinRequest, ContainerID, ContainerProcessID, CopyFileRequest, CreateContainerRequest,
-    CreateSandboxRequest, Empty, ExecProcessRequest, GetGuestDetailsRequest, GetIPTablesRequest,
-    GetIPTablesResponse, GuestDetailsResponse, HealthCheckResponse, IPAddress, IPFamily, Interface,
-    Interfaces, ListProcessesRequest, MemHotplugByProbeRequest, OnlineCPUMemRequest,
-    OomEventResponse, ReadStreamRequest, ReadStreamResponse, RemoveContainerRequest,
-    ReseedRandomDevRequest, Route, Routes, SetGuestDateTimeRequest, SetIPTablesRequest,
-    SetIPTablesResponse, SignalProcessRequest, StatsContainerResponse, Storage,
+    CreateSandboxRequest, Empty, ExecProcessRequest, GetGuestDetailsRequest, GuestDetailsResponse,
+    HealthCheckResponse, IPAddress, IPFamily, Interface, Interfaces, ListProcessesRequest,
+    MemHotplugByProbeRequest, OnlineCPUMemRequest, OomEventResponse, ReadStreamRequest,
+    ReadStreamResponse, RemoveContainerRequest, ReseedRandomDevRequest, Route, Routes,
+    SetGuestDateTimeRequest, SignalProcessRequest, StatsContainerResponse, Storage,
     TtyWinResizeRequest, UpdateContainerRequest, UpdateInterfaceRequest, UpdateRoutesRequest,
     VersionCheckResponse, WaitProcessRequest, WaitProcessResponse, WriteStreamRequest,
     WriteStreamResponse,
@@ -39,7 +38,6 @@ pub trait AgentManager: Send + Sync {
     async fn start(&self, address: &str) -> Result<()>;
     async fn stop(&self);
 
-    async fn agent_sock(&self) -> Result<String>;
     async fn agent_config(&self) -> AgentConfig;
 }
 
@@ -86,6 +84,4 @@ pub trait Agent: AgentManager + HealthService + Send + Sync {
     // utils
     async fn copy_file(&self, req: CopyFileRequest) -> Result<Empty>;
     async fn get_oom_event(&self, req: Empty) -> Result<OomEventResponse>;
-    async fn get_ip_tables(&self, req: GetIPTablesRequest) -> Result<GetIPTablesResponse>;
-    async fn set_ip_tables(&self, req: SetIPTablesRequest) -> Result<SetIPTablesResponse>;
 }

@@ -9,8 +9,15 @@ use resource::resource_persist::ResourceState;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
+pub enum SandboxTYPE {
+    VIRTCONTAINER,
+    LINUXCONTAINER,
+    WASMCONTAINER,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct SandboxState {
-    pub sandbox_type: String,
+    pub sandbox_type: SandboxTYPE,
     pub resource: Option<ResourceState>,
     pub hypervisor: Option<HypervisorState>,
 }
