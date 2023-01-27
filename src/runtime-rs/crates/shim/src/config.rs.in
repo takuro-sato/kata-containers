@@ -7,8 +7,11 @@
 // WARNING: This file is auto-generated - DO NOT EDIT!
 //
 
+#![allow(dead_code)]
+
 pub const PROJECT_NAME: &str = "@PROJECT_NAME@";
 pub const RUNTIME_VERSION: &str = "@RUNTIME_VERSION@";
+pub const RUNTIME_VERSION_COMMIT: &str = "@VERSION_COMMIT@";
 pub const RUNTIME_GIT_COMMIT: &str = "@COMMIT@";
 pub const RUNTIME_NAME: &str = "@RUNTIME_NAME@";
 pub const CONTAINERD_RUNTIME_NAME: &str = "@CONTAINERD_RUNTIME_NAME@";

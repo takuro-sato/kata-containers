@@ -131,16 +131,22 @@ impl Process {
     ) -> Result<()> {
         info!(self.logger, "run io copy for {}", io_name);
         let io_name = io_name.to_string();
-        let logger = self.logger.new(o!("io_name" => io_name));
+        let logger = self.logger.new(o!("io name" => io_name));
         let _ = tokio::spawn(async move {
-            match tokio::io::copy(&mut reader, &mut writer).await {
-                Err(e) => {
-                    warn!(logger, "run_io_copy: failed to copy stream: {}", e);
-                }
-                Ok(length) => {
-                    info!(logger, "run_io_copy: stop to copy stream length {}", length)
-                }
-            };
+            loop {
+                match tokio::io::copy(&mut reader, &mut writer).await {
+                    Err(e) => {
+                        if let Some(error_code) = e.raw_os_error() {
+                            if error_code == libc::EAGAIN {
+                                continue;
+                            }
+                        }
+                        warn!(logger, "io: failed to copy stream {}", e);
+                    }
+                    Ok(length) => warn!(logger, "io: stop to copy stream length {}", length),
+                };
+                break;
+            }
 
             wgw.done();
         });
@@ -157,8 +163,8 @@ impl Process {
         let status = self.status.clone();
 
         let _ = tokio::spawn(async move {
-            // wait on all of the container's io stream terminated
-            info!(logger, "begin wait group io");
+            //wait on all of the container's io stream terminated
+            info!(logger, "begin wait group io",);
             wg.wait().await;
             info!(logger, "end wait group for io");
 
@@ -217,16 +223,8 @@ impl Process {
         *status = ProcessStatus::Stopped;
     }
 
-    pub async fn close_io(&mut self, agent: Arc<dyn Agent>) {
+    pub async fn close_io(&mut self) {
         self.wg_stdin.wait().await;
-
-        let req = agent::CloseStdinRequest {
-            process_id: self.process.clone().into(),
-        };
-
-        if let Err(e) = agent.close_stdin(req).await {
-            warn!(self.logger, "failed clsoe process io: {:?}", e);
-        }
     }
 
     pub async fn get_status(&self) -> ProcessStatus {

@@ -233,7 +233,7 @@ impl ContainerInner {
     }
 
     pub(crate) async fn signal_process(
-        &mut self,
+        &self,
         process: &ContainerProcess,
         signal: u32,
         all: bool,
@@ -247,9 +247,6 @@ impl ContainerInner {
         self.agent
             .signal_process(agent::SignalProcessRequest { process_id, signal })
             .await?;
-
-        self.clean_volumes().await.context("clean volumes")?;
-
         Ok(())
     }
 
@@ -259,35 +256,16 @@ impl ContainerInner {
 
     pub async fn close_io(&mut self, process: &ContainerProcess) -> Result<()> {
         match process.process_type {
-            ProcessType::Container => self.init_process.close_io(self.agent.clone()).await,
+            ProcessType::Container => self.init_process.close_io().await,
             ProcessType::Exec => {
                 let exec = self
                     .exec_processes
                     .get_mut(&process.exec_id)
                     .ok_or_else(|| Error::ProcessNotFound(process.clone()))?;
-                exec.process.close_io(self.agent.clone()).await;
+                exec.process.close_io().await;
             }
         };
 
-        Ok(())
-    }
-
-    async fn clean_volumes(&mut self) -> Result<()> {
-        let mut unhandled = Vec::new();
-        for v in self.volumes.iter() {
-            if let Err(err) = v.cleanup().await {
-                unhandled.push(Arc::clone(v));
-                warn!(
-                    sl!(),
-                    "Failed to clean volume {:?}, error = {:?}",
-                    v.get_volume_mount(),
-                    err
-                );
-            }
-        }
-        if !unhandled.is_empty() {
-            self.volumes = unhandled;
-        }
         Ok(())
     }
 }

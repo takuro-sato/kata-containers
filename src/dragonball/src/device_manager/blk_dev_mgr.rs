@@ -106,7 +106,7 @@ pub enum BlockDeviceError {
 }
 
 /// Type of low level storage device/protocol for virtio-blk devices.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BlockDeviceType {
     /// Unknown low level device type.
     Unknown,
@@ -131,7 +131,7 @@ impl BlockDeviceType {
 }
 
 /// Configuration information for a block device.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BlockDeviceConfigUpdateInfo {
     /// Unique identifier of the drive.
     pub drive_id: String,
@@ -151,7 +151,7 @@ impl BlockDeviceConfigUpdateInfo {
 }
 
 /// Configuration information for a block device.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BlockDeviceConfigInfo {
     /// Unique identifier of the drive.
     pub drive_id: String,
@@ -285,6 +285,7 @@ impl std::fmt::Debug for BlockDeviceInfo {
 pub type BlockDeviceInfo = DeviceConfigInfo<BlockDeviceConfigInfo>;
 
 /// Wrapper for the collection that holds all the Block Devices Configs
+//#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[derive(Clone)]
 pub struct BlockDeviceMgr {
     /// A list of `BlockDeviceInfo` objects.
@@ -576,13 +577,7 @@ impl BlockDeviceMgr {
     ) -> std::result::Result<(), DeviceMgrError> {
         // Respect user configuration if kernel_cmdline contains "root=",
         // special attention for the case when kernel command line starting with "root=xxx"
-        let old_kernel_cmdline = format!(
-            " {:?}",
-            kernel_config
-                .kernel_cmdline()
-                .as_cstring()
-                .map_err(DeviceMgrError::Cmdline)?
-        );
+        let old_kernel_cmdline = format!(" {}", kernel_config.kernel_cmdline().as_str());
         if !old_kernel_cmdline.contains(" root=") && self.has_root_block {
             let cmdline = kernel_config.kernel_cmdline_mut();
             if let Some(ref uuid) = self.part_uuid {
@@ -624,7 +619,7 @@ impl BlockDeviceMgr {
         // we need to satisfy the condition by which a VMM can only have on root device
         if block_device_config.is_root_device {
             if self.has_root_block {
-                Err(BlockDeviceError::RootBlockDeviceAlreadyAdded)
+                return Err(BlockDeviceError::RootBlockDeviceAlreadyAdded);
             } else {
                 self.has_root_block = true;
                 self.read_only_root = block_device_config.is_read_only;

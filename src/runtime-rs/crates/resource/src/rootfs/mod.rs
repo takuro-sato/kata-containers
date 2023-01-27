@@ -4,29 +4,24 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-mod nydus_rootfs;
 mod share_fs_rootfs;
 
-use agent::Storage;
+use std::{sync::Arc, vec::Vec};
+
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use hypervisor::Hypervisor;
 use kata_types::mount::Mount;
-use std::{sync::Arc, vec::Vec};
+use nix::sys::stat::{self, SFlag};
 use tokio::sync::RwLock;
 
 use crate::share_fs::ShareFs;
 
-use self::nydus_rootfs::NYDUS_ROOTFS_TYPE;
-
 const ROOTFS: &str = "rootfs";
-const HYBRID_ROOTFS_LOWER_DIR: &str = "rootfs_lower";
-const TYPE_OVERLAY_FS: &str = "overlay";
+
 #[async_trait]
 pub trait Rootfs: Send + Sync {
     async fn get_guest_rootfs_path(&self) -> Result<String>;
     async fn get_rootfs_mount(&self) -> Result<Vec<oci::Mount>>;
-    async fn get_storage(&self) -> Option<Storage>;
 }
 
 #[derive(Default)]
@@ -51,75 +46,32 @@ impl RootFsResource {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn handler_rootfs(
         &self,
         share_fs: &Option<Arc<dyn ShareFs>>,
-        hypervisor: &dyn Hypervisor,
-        sid: &str,
         cid: &str,
-        root: &oci::Root,
         bundle_path: &str,
         rootfs_mounts: &[Mount],
     ) -> Result<Arc<dyn Rootfs>> {
         match rootfs_mounts {
-            // if rootfs_mounts is empty
-            mounts_vec if mounts_vec.is_empty() => {
-                if let Some(share_fs) = share_fs {
-                    let share_fs_mount = share_fs.get_share_fs_mount();
-                    // share fs rootfs
-                    Ok(Arc::new(
-                        share_fs_rootfs::ShareFsRootfs::new(
-                            &share_fs_mount,
-                            cid,
-                            root.path.as_str(),
-                            None,
-                        )
-                        .await
-                        .context("new share fs rootfs")?,
-                    ))
-                } else {
-                    return Err(anyhow!("share fs is unavailable"));
-                }
-            }
             mounts_vec if is_single_layer_rootfs(mounts_vec) => {
                 // Safe as single_layer_rootfs must have one layer
                 let layer = &mounts_vec[0];
-                let rootfs: Arc<dyn Rootfs> = if let Some(share_fs) = share_fs {
+
+                let rootfs = if let Some(share_fs) = share_fs {
+                    // share fs rootfs
                     let share_fs_mount = share_fs.get_share_fs_mount();
-                    // nydus rootfs
-                    if layer.fs_type == NYDUS_ROOTFS_TYPE {
-                        Arc::new(
-                            nydus_rootfs::NydusRootfs::new(
-                                &share_fs_mount,
-                                hypervisor,
-                                sid,
-                                cid,
-                                layer,
-                            )
-                            .await
-                            .context("new nydus rootfs")?,
-                        )
-                    } else {
-                        // share fs rootfs
-                        Arc::new(
-                            share_fs_rootfs::ShareFsRootfs::new(
-                                &share_fs_mount,
-                                cid,
-                                bundle_path,
-                                Some(layer),
-                            )
-                            .await
-                            .context("new share fs rootfs")?,
-                        )
-                    }
+                    share_fs_rootfs::ShareFsRootfs::new(&share_fs_mount, cid, bundle_path, layer)
+                        .await
+                        .context("new share fs rootfs")?
                 } else {
                     return Err(anyhow!("unsupported rootfs {:?}", &layer));
                 };
 
                 let mut inner = self.inner.write().await;
-                inner.rootfs.push(Arc::clone(&rootfs));
-                Ok(rootfs)
+                let r = Arc::new(rootfs);
+                inner.rootfs.push(r.clone());
+                Ok(r)
             }
             _ => {
                 return Err(anyhow!(
@@ -145,4 +97,25 @@ impl RootFsResource {
 
 fn is_single_layer_rootfs(rootfs_mounts: &[Mount]) -> bool {
     rootfs_mounts.len() == 1
+}
+
+#[allow(dead_code)]
+fn get_block_device(file_path: &str) -> Option<u64> {
+    if file_path.is_empty() {
+        return None;
+    }
+
+    match stat::stat(file_path) {
+        Ok(fstat) => {
+            if SFlag::from_bits_truncate(fstat.st_mode) == SFlag::S_IFBLK {
+                return Some(fstat.st_rdev);
+            }
+        }
+        Err(err) => {
+            error!(sl!(), "failed to stat for {} {:?}", file_path, err);
+            return None;
+        }
+    };
+
+    None
 }

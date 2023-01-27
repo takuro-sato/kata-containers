@@ -9,6 +9,7 @@ package main
 import (
 	"errors"
 	"io"
+	"io/ioutil"
 	"os"
 	"strings"
 )
@@ -55,7 +56,7 @@ func (r *HexByteReader) Read(p []byte) (n int, err error) {
 		}
 
 		// read the entire file
-		bytes, err := io.ReadAll(r.f)
+		bytes, err := ioutil.ReadAll(r.f)
 		if err != nil {
 			return 0, err
 		}

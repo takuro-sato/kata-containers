@@ -1,4 +1,5 @@
 //go:build linux
+// +build linux
 
 // Copyright (c) 2018 Huawei Corporation
 //

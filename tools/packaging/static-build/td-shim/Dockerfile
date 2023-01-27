@@ -15,9 +15,7 @@ RUN apt-get update && \
         gcc \
         git \
         llvm \
-        make \
-        nasm \
-        patch && \
+        nasm && \
     apt-get clean && rm -rf /var/lib/lists/ && \
     curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain ${RUST_TOOLCHAIN} && \
     source "$HOME/.cargo/env" && \

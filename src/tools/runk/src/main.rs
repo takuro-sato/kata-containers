@@ -72,7 +72,7 @@ async fn cmd_run(subcmd: SubCommand, root_path: &Path, logger: &Logger) -> Resul
     match subcmd {
         SubCommand::Standard(cmd) => match cmd {
             StandardCmd::Create(create) => commands::create::run(create, root_path, logger).await,
-            StandardCmd::Start(start) => commands::start::run(start, root_path, logger).await,
+            StandardCmd::Start(start) => commands::start::run(start, root_path, logger),
             StandardCmd::Delete(delete) => commands::delete::run(delete, root_path, logger).await,
             StandardCmd::State(state) => commands::state::run(state, root_path, logger),
         },
@@ -105,7 +105,7 @@ fn setup_logger(
             .read(true)
             .create(true)
             .truncate(true)
-            .open(file)?;
+            .open(&file)?;
 
         // TODO: Support 'text' log format.
         let (logger_local, logger_async_guard_local) =

@@ -10,6 +10,7 @@ package katautils
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -37,11 +38,11 @@ const (
 // tables). The names of these tables are in dotted ("nested table")
 // form:
 //
-//	[<component>.<type>]
+//   [<component>.<type>]
 //
 // The components are hypervisor, and agent. For example,
 //
-//	[agent.kata]
+//   [agent.kata]
 //
 // The currently supported types are listed below:
 const (
@@ -60,9 +61,9 @@ const (
 type tomlConfig struct {
 	Hypervisor map[string]hypervisor
 	Agent      map[string]agent
+	Runtime    runtime
 	Image      image
 	Factory    factory
-	Runtime    runtime
 }
 
 type image struct {
@@ -120,7 +121,6 @@ type hypervisor struct {
 	RxRateLimiterMaxRate           uint64   `toml:"rx_rate_limiter_max_rate"`
 	TxRateLimiterMaxRate           uint64   `toml:"tx_rate_limiter_max_rate"`
 	MemOffset                      uint64   `toml:"memory_offset"`
-	DefaultMaxMemorySize           uint64   `toml:"default_maxmemory"`
 	DiskRateLimiterBwMaxRate       int64    `toml:"disk_rate_limiter_bw_max_rate"`
 	DiskRateLimiterBwOneTimeBurst  int64    `toml:"disk_rate_limiter_bw_one_time_burst"`
 	DiskRateLimiterOpsMaxRate      int64    `toml:"disk_rate_limiter_ops_max_rate"`
@@ -130,10 +130,10 @@ type hypervisor struct {
 	NetRateLimiterOpsMaxRate       int64    `toml:"net_rate_limiter_ops_max_rate"`
 	NetRateLimiterOpsOneTimeBurst  int64    `toml:"net_rate_limiter_ops_one_time_burst"`
 	VirtioFSCacheSize              uint32   `toml:"virtio_fs_cache_size"`
-	VirtioFSQueueSize              uint32   `toml:"virtio_fs_queue_size"`
 	DefaultMaxVCPUs                uint32   `toml:"default_maxvcpus"`
 	MemorySize                     uint32   `toml:"default_memory"`
 	MemSlots                       uint32   `toml:"memory_slots"`
+	DefaultMaxMemorySize           uint64   `toml:"default_maxmemory"`
 	DefaultBridges                 uint32   `toml:"default_bridges"`
 	Msize9p                        uint32   `toml:"msize_9p"`
 	PCIeRootPort                   uint32   `toml:"pcie_root_port"`
@@ -159,15 +159,12 @@ type hypervisor struct {
 	DisableVhostNet                bool     `toml:"disable_vhost_net"`
 	GuestMemoryDumpPaging          bool     `toml:"guest_memory_dump_paging"`
 	ConfidentialGuest              bool     `toml:"confidential_guest"`
-	SevSnpGuest                    bool     `toml:"sev_snp_guest"`
 	GuestSwap                      bool     `toml:"enable_guest_swap"`
 	Rootless                       bool     `toml:"rootless"`
 	DisableSeccomp                 bool     `toml:"disable_seccomp"`
 	DisableSeLinux                 bool     `toml:"disable_selinux"`
-	DisableGuestSeLinux            bool     `toml:"disable_guest_selinux"`
 	LegacySerial                   bool     `toml:"use_legacy_serial"`
 	GuestPreAttestation            bool     `toml:"guest_pre_attestation"`
-	EnableVCPUsPinning             bool     `toml:"enable_vcpus_pinning"`
 }
 
 type runtime struct {
@@ -176,13 +173,12 @@ type runtime struct {
 	JaegerUser                string   `toml:"jaeger_user"`
 	JaegerPassword            string   `toml:"jaeger_password"`
 	VfioMode                  string   `toml:"vfio_mode"`
-	GuestSeLinuxLabel         string   `toml:"guest_selinux_label"`
 	SandboxBindMounts         []string `toml:"sandbox_bind_mounts"`
 	Experimental              []string `toml:"experimental"`
+	Debug                     bool     `toml:"enable_debug"`
 	Tracing                   bool     `toml:"enable_tracing"`
 	DisableNewNetNs           bool     `toml:"disable_new_netns"`
 	DisableGuestSeccomp       bool     `toml:"disable_guest_seccomp"`
-	Debug                     bool     `toml:"enable_debug"`
 	SandboxCgroupOnly         bool     `toml:"sandbox_cgroup_only"`
 	StaticSandboxResourceMgmt bool     `toml:"static_sandbox_resource_mgmt"`
 	EnablePprof               bool     `toml:"enable_pprof"`
@@ -703,7 +699,6 @@ func newFirecrackerHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		TxRateLimiterMaxRate:  txRateLimiterMaxRate,
 		EnableAnnotations:     h.EnableAnnotations,
 		DisableSeLinux:        h.DisableSeLinux,
-		DisableGuestSeLinux:   true, // Guest SELinux is not supported in Firecracker
 	}, nil
 }
 
@@ -812,7 +807,6 @@ func newQemuHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		VirtioFSDaemonList:            h.VirtioFSDaemonList,
 		VirtioFSCacheSize:             h.VirtioFSCacheSize,
 		VirtioFSCache:                 h.defaultVirtioFSCache(),
-		VirtioFSQueueSize:             h.VirtioFSQueueSize,
 		VirtioFSExtraArgs:             h.VirtioFSExtraArgs,
 		MemPrealloc:                   h.MemPrealloc,
 		HugePages:                     h.HugePages,
@@ -844,7 +838,6 @@ func newQemuHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		GuestMemoryDumpPath:           h.GuestMemoryDumpPath,
 		GuestMemoryDumpPaging:         h.GuestMemoryDumpPaging,
 		ConfidentialGuest:             h.ConfidentialGuest,
-		SevSnpGuest:                   h.SevSnpGuest,
 		GuestSwap:                     h.GuestSwap,
 		Rootless:                      h.Rootless,
 		LegacySerial:                  h.LegacySerial,
@@ -856,8 +849,6 @@ func newQemuHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		GuestPreAttestationSecretType: h.GuestPreAttestationSecretType,
 		SEVGuestPolicy:                h.SEVGuestPolicy,
 		SEVCertChainPath:              h.SEVCertChainPath,
-		EnableVCPUsPinning:            h.EnableVCPUsPinning,
-		DisableGuestSeLinux:           h.DisableGuestSeLinux,
 	}, nil
 }
 
@@ -924,7 +915,6 @@ func newAcrnHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		GuestHookPath:         h.guestHookPath(),
 		DisableSeLinux:        h.DisableSeLinux,
 		EnableAnnotations:     h.EnableAnnotations,
-		DisableGuestSeLinux:   true, // Guest SELinux is not supported in ACRN
 	}, nil
 }
 
@@ -1030,7 +1020,6 @@ func newClhHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		DisableSeccomp:                 h.DisableSeccomp,
 		ConfidentialGuest:              h.ConfidentialGuest,
 		DisableSeLinux:                 h.DisableSeLinux,
-		DisableGuestSeLinux:            h.DisableGuestSeLinux,
 		NetRateLimiterBwMaxRate:        h.getNetRateLimiterBwMaxRate(),
 		NetRateLimiterBwOneTimeBurst:   h.getNetRateLimiterBwOneTimeBurst(),
 		NetRateLimiterOpsMaxRate:       h.getNetRateLimiterOpsMaxRate(),
@@ -1071,7 +1060,6 @@ func newRemoteHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 	return vc.HypervisorConfig{
 		RemoteHypervisorSocket:  h.RemoteHypervisorSocket,
 		RemoteHypervisorTimeout: h.RemoteHypervisorTimeout,
-		DisableGuestSeLinux:     h.DisableGuestSeLinux,
 
 		// No valid value so avoid to append block device to list in kata_agent.appendDevices
 		BlockDeviceDriver: "dummy",
@@ -1265,11 +1253,9 @@ func GetDefaultHypervisorConfig() vc.HypervisorConfig {
 		TxRateLimiterMaxRate:          defaultTxRateLimiterMaxRate,
 		SGXEPCSize:                    defaultSGXEPCSize,
 		ConfidentialGuest:             defaultConfidentialGuest,
-		SevSnpGuest:                   defaultSevSnpGuest,
 		GuestSwap:                     defaultGuestSwap,
 		Rootless:                      defaultRootlessHypervisor,
 		DisableSeccomp:                defaultDisableSeccomp,
-		DisableGuestSeLinux:           defaultDisableGuestSeLinux,
 		LegacySerial:                  defaultLegacySerial,
 		GuestPreAttestation:           defaultGuestPreAttestation,
 		GuestPreAttestationProxy:      defaultGuestPreAttestationProxy,
@@ -1364,7 +1350,7 @@ func LoadConfiguration(configPath string, ignoreLogging bool) (resolvedConfigPat
 	}
 
 	config.DisableGuestSeccomp = tomlConf.Runtime.DisableGuestSeccomp
-	config.GuestSeLinuxLabel = tomlConf.Runtime.GuestSeLinuxLabel
+
 	config.StaticSandboxResourceMgmt = tomlConf.Runtime.StaticSandboxResourceMgmt
 	config.SandboxCgroupOnly = tomlConf.Runtime.SandboxCgroupOnly
 	config.DisableNewNetNs = tomlConf.Runtime.DisableNewNetNs
@@ -1459,7 +1445,7 @@ func decodeDropIns(mainConfigPath string, tomlConf *tomlConfig) error {
 	configDir := filepath.Dir(mainConfigPath)
 	dropInDir := filepath.Join(configDir, "config.d")
 
-	files, err := os.ReadDir(dropInDir)
+	files, err := ioutil.ReadDir(dropInDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("error reading %q directory: %s", dropInDir, err)

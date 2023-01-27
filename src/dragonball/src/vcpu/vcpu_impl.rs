@@ -533,11 +533,16 @@ impl Vcpu {
     fn check_io_port_info(&self, addr: u16, data: &[u8]) -> Result<bool> {
         let mut checked = false;
 
-        // debug info signal
-        if addr == MAGIC_IOPORT_DEBUG_INFO && data.len() == 4 {
-            let data = unsafe { std::ptr::read(data.as_ptr() as *const u32) };
-            log::warn!("KDBG: guest kernel debug info: 0x{:x}", data);
-            checked = true;
+        match addr {
+            // debug info signal
+            MAGIC_IOPORT_DEBUG_INFO => {
+                if data.len() == 4 {
+                    let data = unsafe { std::ptr::read(data.as_ptr() as *const u32) };
+                    log::warn!("KDBG: guest kernel debug info: 0x{:x}", data);
+                    checked = true;
+                }
+            }
+            _ => {}
         };
 
         Ok(checked)
@@ -766,7 +771,6 @@ pub mod tests {
     use dbs_device::device_manager::IoManager;
     use kvm_ioctls::Kvm;
     use lazy_static::lazy_static;
-    use test_utils::skip_if_not_root;
 
     use super::*;
     use crate::kvm_context::KvmContext;
@@ -851,7 +855,7 @@ pub mod tests {
 
         let kvm = Kvm::new().unwrap();
         let vm = Arc::new(kvm.create_vm().unwrap());
-        let _kvm_context = KvmContext::new(Some(kvm.as_raw_fd())).unwrap();
+        let kvm_context = KvmContext::new(Some(kvm.as_raw_fd())).unwrap();
         let vcpu_fd = Arc::new(vm.create_vcpu(0).unwrap());
         let io_manager = IoManagerCached::new(Arc::new(ArcSwap::new(Arc::new(IoManager::new()))));
         let reset_event_fd = EventFd::new(libc::EFD_NONBLOCK).unwrap();
@@ -876,8 +880,6 @@ pub mod tests {
 
     #[test]
     fn test_vcpu_run_emulation() {
-        skip_if_not_root!();
-
         let (mut vcpu, _) = create_vcpu();
 
         #[cfg(target_arch = "x86_64")]
@@ -962,8 +964,6 @@ pub mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_vcpu_check_io_port_info() {
-        skip_if_not_root!();
-
         let (vcpu, _receiver) = create_vcpu();
 
         // debug info signal

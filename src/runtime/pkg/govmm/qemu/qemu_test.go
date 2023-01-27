@@ -7,6 +7,7 @@ package qemu
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"reflect"
 	"strings"
@@ -34,7 +35,7 @@ func testConfigAppend(config *Config, structure interface{}, expected string, t 
 
 	case Device:
 		config.Devices = []Device{s}
-		config.appendDevices(nil)
+		config.appendDevices()
 
 	case Knobs:
 		config.Knobs = s
@@ -185,8 +186,8 @@ func TestAppendDeviceNetwork(t *testing.T) {
 }
 
 func TestAppendDeviceNetworkMq(t *testing.T) {
-	foo, _ := os.CreateTemp(os.TempDir(), "govmm-qemu-test")
-	bar, _ := os.CreateTemp(os.TempDir(), "govmm-qemu-test")
+	foo, _ := ioutil.TempFile(os.TempDir(), "govmm-qemu-test")
+	bar, _ := ioutil.TempFile(os.TempDir(), "govmm-qemu-test")
 
 	defer func() {
 		_ = foo.Close()
@@ -889,7 +890,7 @@ func TestBadQMPSockets(t *testing.T) {
 
 func TestBadDevices(t *testing.T) {
 	c := &Config{}
-	c.appendDevices(nil)
+	c.appendDevices()
 	if len(c.qemuParams) != 0 {
 		t.Errorf("Expected empty qemuParams, found %s", c.qemuParams)
 	}
@@ -941,7 +942,7 @@ func TestBadDevices(t *testing.T) {
 		},
 	}
 
-	c.appendDevices(nil)
+	c.appendDevices()
 	if len(c.qemuParams) != 0 {
 		t.Errorf("Expected empty qemuParams, found %s", c.qemuParams)
 	}

@@ -6,12 +6,12 @@
 
 package main
 
-import "os"
+import "io/ioutil"
 
 func createEmptyFile(path string) (err error) {
-	return os.WriteFile(path, []byte(""), testFileMode)
+	return ioutil.WriteFile(path, []byte(""), testFileMode)
 }
 
 func createFile(file, contents string) error {
-	return os.WriteFile(file, []byte(contents), testFileMode)
+	return ioutil.WriteFile(file, []byte(contents), testFileMode)
 }

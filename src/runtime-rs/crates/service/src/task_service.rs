@@ -40,7 +40,7 @@ where
     let r = req
         .try_into()
         .map_err(|err| ttrpc::Error::Others(format!("failed to translate from shim {:?}", err)))?;
-    let logger = sl!().new(o!("stream id" =>  ctx.mh.stream_id));
+    let logger = sl!().new(o!("steam id" =>  ctx.mh.stream_id));
     debug!(logger, "====> task service {:?}", &r);
     let resp = s
         .handler_message(r)
@@ -77,6 +77,5 @@ impl_service!(
     wait | api::WaitRequest | api::WaitResponse,
     stats | api::StatsRequest | api::StatsResponse,
     connect | api::ConnectRequest | api::ConnectResponse,
-    shutdown | api::ShutdownRequest | api::Empty,
-    close_io | api::CloseIORequest | api::Empty
+    shutdown | api::ShutdownRequest | api::Empty
 );

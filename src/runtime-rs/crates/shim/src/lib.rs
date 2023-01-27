@@ -16,7 +16,7 @@ pub use error::Error;
 mod logger;
 mod panic_hook;
 mod shim;
-pub use crate::shim::ShimExecutor;
+pub use shim::ShimExecutor;
 mod core_sched;
 #[rustfmt::skip]
 pub mod config;

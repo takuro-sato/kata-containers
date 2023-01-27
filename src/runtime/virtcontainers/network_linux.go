@@ -1045,15 +1045,6 @@ func doNetNS(netNSPath string, cb func(ns.NetNS) error) error {
 	return cb(targetNS)
 }
 
-// EnterNetNS is free from any call to a go routine, and it calls
-// into runtime.LockOSThread(), meaning it won't be executed in a
-// different thread than the one expected by the caller.
-func EnterNetNS(networkID string, cb func() error) error {
-	return doNetNS(networkID, func(nn ns.NetNS) error {
-		return cb()
-	})
-}
-
 func deleteNetNS(netNSPath string) error {
 	n, err := ns.GetNS(netNSPath)
 	if err != nil {
@@ -1136,18 +1127,17 @@ func addRxRateLimiter(endpoint Endpoint, maxRate uint64) error {
 // from their parents once they have exceeded rate. A child class will continue to attempt to borrow until
 // it reaches ceil. See more details in https://tldp.org/HOWTO/Traffic-Control-HOWTO/classful-qdiscs.html.
 //
-//   - +-----+     +---------+     +-----------+      +-----------+
-//   - |     |     |  qdisc  |     | class 1:1 |      | class 1:2 |
-//   - | NIC |     |   htb   |     |   rate    |      |   rate    |
-//   - |     | --> | def 1:2 | --> |   ceil    | -+-> |   ceil    |
-//   - +-----+     +---------+     +-----------+  |   +-----------+
-//   - |
-//   - |   +-----------+
-//   - |   | class 1:n |
-//   - |   |   rate    |
-//   - +-> |   ceil    |
-//   - |   +-----------+
-//
+//         * +-----+     +---------+     +-----------+      +-----------+
+//         * |     |     |  qdisc  |     | class 1:1 |      | class 1:2 |
+//         * | NIC |     |   htb   |     |   rate    |      |   rate    |
+//         * |     | --> | def 1:2 | --> |   ceil    | -+-> |   ceil    |
+//         * +-----+     +---------+     +-----------+  |   +-----------+
+//         *                                            |
+//         *                                            |   +-----------+
+//         *                                            |   | class 1:n |
+//         *                                            |   |   rate    |
+//         *                                            +-> |   ceil    |
+//         *                                            |   +-----------+
 // Seeing from pic, after the routing decision, all packets will be sent to the interface root htb qdisc.
 // This root qdisc has only one direct child class (with id 1:1) which shapes the overall maximum rate
 // that will be sent through interface. Then, this class has at least one default child (1:2) meant to control all

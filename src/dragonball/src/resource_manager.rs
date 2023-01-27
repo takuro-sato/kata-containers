@@ -36,7 +36,7 @@ const PIO_MAX: u16 = 0xFFFF;
 const MMIO_SPACE_RESERVED: u64 = 0x400_0000;
 
 /// Errors associated with resource management operations
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum ResourceError {
     /// Unknown/unsupported resource type.
     #[error("unsupported resource type")]
@@ -420,7 +420,6 @@ impl ResourceManager {
     }
 
     /// Allocate requested resources for a device.
-    #[allow(clippy::question_mark)]
     pub fn allocate_device_resources(
         &self,
         requests: &[ResourceConstraint],
@@ -436,7 +435,10 @@ impl ResourceManager {
                         constraint.max = r.1 as u64;
                     }
                     match self.allocate_pio_address(&constraint) {
-                        Some(base) => Resource::PioAddressRange { base, size: *size },
+                        Some(base) => Resource::PioAddressRange {
+                            base: base as u16,
+                            size: *size,
+                        },
                         None => {
                             if let Err(e) = self.free_device_resources(&resources) {
                                 return Err(e);
@@ -567,7 +569,9 @@ impl ResourceManager {
                 Resource::KvmMemSlot(slot) => self.free_kvm_mem_slot(*slot),
                 Resource::MacAddresss(_) => Ok(()),
             };
-            result?;
+            if result.is_err() {
+                return result;
+            }
         }
         Ok(())
     }
@@ -584,9 +588,9 @@ mod tests {
         // Allocate/free shared IRQs multiple times.
         assert_eq!(mgr.allocate_legacy_irq(true, None).unwrap(), SHARED_IRQ);
         assert_eq!(mgr.allocate_legacy_irq(true, None).unwrap(), SHARED_IRQ);
-        mgr.free_legacy_irq(SHARED_IRQ).unwrap();
-        mgr.free_legacy_irq(SHARED_IRQ).unwrap();
-        mgr.free_legacy_irq(SHARED_IRQ).unwrap();
+        mgr.free_legacy_irq(SHARED_IRQ);
+        mgr.free_legacy_irq(SHARED_IRQ);
+        mgr.free_legacy_irq(SHARED_IRQ);
 
         // Allocate specified IRQs.
         assert_eq!(
@@ -594,7 +598,7 @@ mod tests {
                 .unwrap(),
             LEGACY_IRQ_BASE + 10
         );
-        mgr.free_legacy_irq(LEGACY_IRQ_BASE + 10).unwrap();
+        mgr.free_legacy_irq(LEGACY_IRQ_BASE + 10);
         assert_eq!(
             mgr.allocate_legacy_irq(false, Some(LEGACY_IRQ_BASE + 10))
                 .unwrap(),
@@ -631,19 +635,19 @@ mod tests {
         let mgr = ResourceManager::new(None);
 
         let msi = mgr.allocate_msi_irq(3).unwrap();
-        mgr.free_msi_irq(msi, 3).unwrap();
+        mgr.free_msi_irq(msi, 3);
         let msi = mgr.allocate_msi_irq(3).unwrap();
-        mgr.free_msi_irq(msi, 3).unwrap();
+        mgr.free_msi_irq(msi, 3);
 
         let irq = mgr.allocate_msi_irq_aligned(8).unwrap();
         assert_eq!(irq & 0x7, 0);
-        mgr.free_msi_irq(msi, 8).unwrap();
+        mgr.free_msi_irq(msi, 8);
         let irq = mgr.allocate_msi_irq_aligned(8).unwrap();
         assert_eq!(irq & 0x7, 0);
 
         let irq = mgr.allocate_msi_irq_aligned(512).unwrap();
         assert_eq!(irq, 512);
-        mgr.free_msi_irq(irq, 512).unwrap();
+        mgr.free_msi_irq(irq, 512);
         let irq = mgr.allocate_msi_irq_aligned(512).unwrap();
         assert_eq!(irq, 512);
 
@@ -686,9 +690,9 @@ mod tests {
             },
         ];
         let resources = mgr.allocate_device_resources(&requests, false).unwrap();
-        mgr.free_device_resources(&resources).unwrap();
+        mgr.free_device_resources(&resources);
         let resources = mgr.allocate_device_resources(&requests, false).unwrap();
-        mgr.free_device_resources(&resources).unwrap();
+        mgr.free_device_resources(&resources);
         requests.push(ResourceConstraint::PioAddress {
             range: Some((0xc000, 0xc000)),
             align: 0x1000,
@@ -698,7 +702,7 @@ mod tests {
         let resources = mgr
             .allocate_device_resources(&requests[0..requests.len() - 1], false)
             .unwrap();
-        mgr.free_device_resources(&resources).unwrap();
+        mgr.free_device_resources(&resources);
     }
 
     #[test]
@@ -717,7 +721,7 @@ mod tests {
         let mgr = ResourceManager::new(None);
         assert_eq!(mgr.allocate_kvm_mem_slot(1, None).unwrap(), 0);
         assert_eq!(mgr.allocate_kvm_mem_slot(1, Some(200)).unwrap(), 200);
-        mgr.free_kvm_mem_slot(200).unwrap();
+        mgr.free_kvm_mem_slot(200);
         assert_eq!(mgr.allocate_kvm_mem_slot(1, Some(200)).unwrap(), 200);
         assert_eq!(
             mgr.allocate_kvm_mem_slot(1, Some(KVM_USER_MEM_SLOTS))

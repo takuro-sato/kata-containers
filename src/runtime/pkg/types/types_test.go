@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Ant Group
 //
 // SPDX-License-Identifier: Apache-2.0
+//
 package types
 
 import (

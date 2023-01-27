@@ -1,4 +1,5 @@
 //go:build linux
+// +build linux
 
 // Copyright (c) 2016 Intel Corporation
 //
@@ -20,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -99,8 +99,7 @@ type qemu struct {
 	nvdimmCount int
 	// if in memory dump progress
 	memoryDumpFlag sync.Mutex
-	stopped        int32
-	mu             sync.Mutex
+	stopped        bool
 }
 
 const (
@@ -169,15 +168,6 @@ func (q *qemu) kernelParameters() string {
 
 	// set the maximum number of vCPUs
 	params = append(params, Param{"nr_cpus", fmt.Sprintf("%d", q.config.DefaultMaxVCPUs)})
-
-	// set the SELinux params in accordance with the runtime configuration, disable_guest_selinux.
-	if q.config.DisableGuestSeLinux {
-		q.Logger().Info("Set selinux=0 to kernel params because SELinux on the guest is disabled")
-		params = append(params, Param{"selinux", "0"})
-	} else {
-		q.Logger().Info("Set selinux=1 to kernel params because SELinux on the guest is enabled")
-		params = append(params, Param{"selinux", "1"})
-	}
 
 	// add the params specified by the provided config. As the kernel
 	// honours the last parameter value set and since the config-provided
@@ -474,13 +464,6 @@ func (q *qemu) createVirtiofsDaemon(sharedPath string) (VirtiofsDaemon, error) {
 		return nd, nil
 	}
 
-	// Set the xattr option for virtiofsd daemon to enable extended attributes
-	// in virtiofs if SELinux on the guest side is enabled.
-	if !q.config.DisableGuestSeLinux {
-		q.Logger().Info("Set the xattr option for virtiofsd")
-		q.config.VirtioFSExtraArgs = append(q.config.VirtioFSExtraArgs, "-o", "xattr")
-	}
-
 	// default use virtiofsd
 	return &virtiofsd{
 		path:       q.config.VirtioFSDaemon,
@@ -714,7 +697,7 @@ func (q *qemu) checkBpfEnabled() {
 			q.Logger().WithError(err).Warningf("failed to get bpf_jit_enable status")
 			return
 		}
-		enabled, err := strconv.Atoi(strings.TrimSpace(string(out)))
+		enabled, err := strconv.Atoi(string(out))
 		if err != nil {
 			q.Logger().WithError(err).Warningf("failed to convert bpf_jit_enable status to integer")
 			return
@@ -930,6 +913,7 @@ func (q *qemu) StartVM(ctx context.Context, timeout int) error {
 	// the SELinux label. If these processes require privileged, we do
 	// notwant to run them under confinement.
 	if !q.config.DisableSeLinux {
+
 		if err := label.SetProcessLabel(q.config.SELinuxProcessLabel); err != nil {
 			return err
 		}
@@ -1052,23 +1036,19 @@ func (q *qemu) waitVM(ctx context.Context, timeout int) error {
 }
 
 // StopVM will stop the Sandbox's VM.
-func (q *qemu) StopVM(ctx context.Context, waitOnly bool) (err error) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
+func (q *qemu) StopVM(ctx context.Context, waitOnly bool) error {
 	span, _ := katatrace.Trace(ctx, q.Logger(), "StopVM", qemuTracingTags, map[string]string{"sandbox_id": q.id})
 	defer span.End()
 
 	q.Logger().Info("Stopping Sandbox")
-	if atomic.LoadInt32(&q.stopped) != 0 {
+	if q.stopped {
 		q.Logger().Info("Already stopped")
 		return nil
 	}
 
 	defer func() {
 		q.cleanupVM()
-		if err == nil {
-			atomic.StoreInt32(&q.stopped, 1)
-		}
+		q.stopped = true
 	}()
 
 	if q.config.Debug && q.qemuConfig.LogFile != "" {
@@ -1148,27 +1128,15 @@ func (q *qemu) cleanupVM() error {
 	}
 
 	if rootless.IsRootless() {
-		if _, err := user.Lookup(q.config.User); err != nil {
-			q.Logger().WithError(err).WithFields(
-				logrus.Fields{
-					"user": q.config.User,
-					"uid":  q.config.Uid,
-				}).Warn("failed to find the user, it might have been removed")
+		u, err := user.LookupId(strconv.Itoa(int(q.config.Uid)))
+		if err != nil {
+			q.Logger().WithError(err).WithField("uid", q.config.Uid).Warn("failed to find the user")
 			return nil
 		}
 
-		if err := pkgUtils.RemoveVmmUser(q.config.User); err != nil {
-			q.Logger().WithError(err).WithFields(
-				logrus.Fields{
-					"user": q.config.User,
-					"uid":  q.config.Uid,
-				}).Warn("failed to delete the user")
+		if err := pkgUtils.RemoveVmmUser(u.Username); err != nil {
+			q.Logger().WithError(err).WithField("user", u.Username).Warn("failed to delete the user")
 		}
-		q.Logger().WithFields(
-			logrus.Fields{
-				"user": q.config.User,
-				"uid":  q.config.Uid,
-			}).Debug("successfully removed the non root user")
 	}
 
 	return nil
@@ -1998,7 +1966,6 @@ func (q *qemu) hotplugAddCPUs(amount uint32) (uint32, error) {
 		}
 
 		if err := q.qmpMonitorCh.qmp.ExecuteCPUDeviceAdd(q.qmpMonitorCh.ctx, driver, cpuID, socketID, dieID, coreID, threadID, romFile); err != nil {
-			q.Logger().WithField("hotplug", "cpu").Warnf("qmp hotplug cpu, cpuID=%s socketID=%s, error: %v", cpuID, socketID, err)
 			// don't fail, let's try with other CPU
 			continue
 		}
@@ -2165,7 +2132,6 @@ func (q *qemu) AddDevice(ctx context.Context, devInfo interface{}, devType Devic
 				Type:      config.VhostUserFS,
 				CacheSize: q.config.VirtioFSCacheSize,
 				Cache:     q.config.VirtioFSCache,
-				QueueSize: q.config.VirtioFSQueueSize,
 			}
 			vhostDev.SocketPath = sockPath
 			vhostDev.DevID = id
@@ -2654,7 +2620,7 @@ func (q *qemu) toGrpc(ctx context.Context) ([]byte, error) {
 func (q *qemu) Save() (s hv.HypervisorState) {
 
 	// If QEMU isn't even running, there isn't any state to Save
-	if atomic.LoadInt32(&q.stopped) != 0 {
+	if q.stopped {
 		return
 	}
 
@@ -2705,10 +2671,6 @@ func (q *qemu) Load(s hv.HypervisorState) {
 }
 
 func (q *qemu) Check() error {
-	if atomic.LoadInt32(&q.stopped) != 0 {
-		return fmt.Errorf("qemu is not running")
-	}
-
 	q.memoryDumpFlag.Lock()
 	defer q.memoryDumpFlag.Unlock()
 

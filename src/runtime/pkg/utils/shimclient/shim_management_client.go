@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"time"
@@ -90,7 +91,7 @@ func DoPut(sandboxID string, timeoutInSeconds time.Duration, urlPath, contentTyp
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(resp.Body)
+		data, _ := ioutil.ReadAll(resp.Body)
 		return fmt.Errorf("error sending put: url: %s, status code: %d, response data: %s", urlPath, resp.StatusCode, string(data))
 	}
 
@@ -116,7 +117,7 @@ func DoPost(sandboxID string, timeoutInSeconds time.Duration, urlPath, contentTy
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(resp.Body)
+		data, _ := ioutil.ReadAll(resp.Body)
 		return fmt.Errorf("error sending post: url: %s, status code: %d, response data: %s", urlPath, resp.StatusCode, string(data))
 	}
 

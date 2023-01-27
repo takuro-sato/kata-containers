@@ -9,6 +9,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -51,7 +52,7 @@ func (r *TestReaderData) Read(p []byte) (n int, err error) {
 func TestParseLogFile(t *testing.T) {
 	assert := assert.New(t)
 
-	dir, err := os.MkdirTemp("", "")
+	dir, err := ioutil.TempDir("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +201,7 @@ func TestParseLogFiles(t *testing.T) {
 		},
 	}
 
-	dir, err := os.MkdirTemp("", "")
+	dir, err := ioutil.TempDir("", "")
 	if err != nil {
 		t.Fatal(err)
 	}

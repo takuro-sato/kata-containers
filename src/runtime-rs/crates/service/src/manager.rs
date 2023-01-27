@@ -28,7 +28,7 @@ use ttrpc::asynchronous::Server;
 use crate::task_service::TaskService;
 /// message buffer size
 const MESSAGE_BUFFER_SIZE: usize = 8;
-use shim_interface::KATA_PATH;
+use persist::KATA_PATH;
 
 pub struct ServiceManager {
     receiver: Option<Receiver<Message>>,
@@ -55,7 +55,7 @@ async fn send_event(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .args([
+        .args(&[
             "--address",
             &address,
             "publish",
@@ -65,7 +65,7 @@ async fn send_event(
             &namespace,
         ])
         .spawn()
-        .context("spawn containerd cmd to publish event")?;
+        .context("sawn cmd")?;
 
     let stdin = child.stdin.as_mut().context("failed to open stdin")?;
     stdin
@@ -155,7 +155,7 @@ impl ServiceManager {
         let handler = RuntimeHandlerManager::new(sid, sender)
             .await
             .context("new runtime handler")?;
-        handler.cleanup().await.context("runtime handler cleanup")?;
+        handler.cleanup().await?;
         let temp_dir = [KATA_PATH, sid].join("/");
         if std::fs::metadata(temp_dir.as_str()).is_ok() {
             // try to remove dir and skip the result

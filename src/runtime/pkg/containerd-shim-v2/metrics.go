@@ -51,14 +51,13 @@ func statsToMetrics(stats *vc.ContainerStats) *cgroupsv1.Metrics {
 
 func setHugetlbStats(vcHugetlb map[string]vc.HugetlbStats) []*cgroupsv1.HugetlbStat {
 	var hugetlbStats []*cgroupsv1.HugetlbStat
-	for k, v := range vcHugetlb {
+	for _, v := range vcHugetlb {
 		hugetlbStats = append(
 			hugetlbStats,
 			&cgroupsv1.HugetlbStat{
-				Usage:    v.Usage,
-				Max:      v.MaxUsage,
-				Failcnt:  v.Failcnt,
-				Pagesize: k,
+				Usage:   v.Usage,
+				Max:     v.MaxUsage,
+				Failcnt: v.Failcnt,
 			})
 	}
 

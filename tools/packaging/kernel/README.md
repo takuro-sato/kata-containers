@@ -9,8 +9,7 @@ automates the process to build a kernel for Kata Containers.
 The `build-kernel.sh` script requires an installed Golang version matching the
 [component build requirements](../../../docs/Developer-Guide.md#requirements-to-build-individual-components).
 It also requires [yq](https://github.com/mikefarah/yq) version 3.4.1
-> **Hint**: `snap install yq --channel=v3/stable` \
-> **or** `go install github.com/mikefarah/yq/v3@latest`
+> **Hint**: `snap install yq --channel=v3/stable`
 
 
 The Linux kernel scripts further require a few packages (flex, bison, and libelf-dev)
@@ -54,7 +53,7 @@ Options:
 ```
 
 Example:
-```bash
+```
 $ ./build-kernel.sh -v 5.10.25 -g nvidia -f -d setup
 ```
 > **Note**
@@ -69,8 +68,8 @@ $ ./build-kernel.sh -v 5.10.25 -g nvidia -f -d setup
 ## Setup kernel source code
 
 ```bash
-$ git clone github.com/kata-containers/kata-containers
-$ cd kata-containers/tools/packaging/kernel
+$ go get -d -u github.com/kata-containers/kata-containers
+$ cd $GOPATH/src/github.com/kata-containers/kata-containers/tools/packaging/kernel
 $ ./build-kernel.sh setup
 ```
 

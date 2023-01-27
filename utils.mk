@@ -39,9 +39,6 @@ $(2) : $(1)/$(2)/Makefile
 	make -C $(1)/$(2)
 build-$(2) : $(2)
 
-static-checks-build-$(2):
-	make -C $(1)/$(2) static-checks-build
-
 check-$(2) : $(2)
 	make -C $(1)/$(2) check
 
@@ -169,7 +166,6 @@ ifneq ($(HOST_ARCH),$(ARCH))
          $(warning "WARNING: A foreign ARCH was passed, but no CC alternative. Using $(CC).")
     endif
     override EXTRA_RUSTFLAGS += -C linker=$(CC)
-    undefine CC
 endif
 
 TRIPLE = $(ARCH)-unknown-linux-$(LIBC)
@@ -177,7 +173,6 @@ TRIPLE = $(ARCH)-unknown-linux-$(LIBC)
 CWD := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 standard_rust_check:
-	@echo "standard rust check..."
 	cargo fmt -- --check
 	cargo clippy --all-targets --all-features --release \
 		-- \

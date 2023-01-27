@@ -24,7 +24,7 @@ architectures:
 
 | Installation method                                  | Description                                                                                  | Automatic updates | Use case                                                                                      | Availability
 |------------------------------------------------------|----------------------------------------------------------------------------------------------|-------------------|-----------------------------------------------------------------------------------------------|----------- |
-| [Using kata-deploy](#kata-deploy-installation)       | The preferred way to deploy the Kata Containers distributed binaries on a Kubernetes cluster | **No!**           | Best way to give it a try on kata-containers on an already up and running Kubernetes cluster. | Yes |
+| [Using kata-deploy](#kata-deploy-installation)       | The preferred way to deploy the Kata Containers distributed binaries on a Kubernetes cluster | **No!**           | Best way to give it a try on kata-containers on an already up and running Kubernetes cluster. | No |
 | [Using official distro packages](#official-packages) | Kata packages provided by Linux distributions official repositories                          | yes               | Recommended for most users. | No |                                                                   
 | [Using snap](#snap-installation)                     | Easy to install                                                                              | yes               | Good alternative to official distro packages.                                                 | No |
 | [Automatic](#automatic-installation)                 | Run a single command to install a full system                                                | **No!**           | For those wanting the latest release quickly.                                                 | No |
@@ -32,8 +32,7 @@ architectures:
 | [Build from source](#build-from-source-installation) | Build the software components manually                                                       | **No!**           | Power users and developers only.  | Yes |              
 
 ### Kata Deploy Installation
-
-Follow the [`kata-deploy`](../../tools/packaging/kata-deploy/README.md).
+`ToDo`
 ### Official packages
 `ToDo`
 ### Snap Installation
@@ -49,14 +48,14 @@ Follow the [`kata-deploy`](../../tools/packaging/kata-deploy/README.md).
 
 * Download `Rustup` and install  `Rust`
     > **Notes:**
-    > Rust version 1.62.0 is needed
+    > Rust version 1.58 is needed
 
     Example for `x86_64`
     ```
     $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
     $ source $HOME/.cargo/env
-    $ rustup install 1.62.0
-    $ rustup default 1.62.0-x86_64-unknown-linux-gnu
+    $ rustup install 1.58
+    $ rustup default 1.58-x86_64-unknown-linux-gnu
     ```
 
 * Musl support for fully static binary
@@ -84,7 +83,7 @@ $ git clone https://github.com/kata-containers/kata-containers.git
 $ cd kata-containers/src/runtime-rs
 $ make && sudo make install
 ```
-After running the command above, the default config file `configuration.toml` will be installed under `/usr/share/defaults/kata-containers/`,  the binary file `containerd-shim-kata-v2` will be installed under `/usr/local/bin/` .
+After running the command above, the default config file `configuration.toml` will be installed under `/usr/share/defaults/kata-containers/`,  the binary file `containerd-shim-kata-v2` will be installed under `/user/local/bin` .
 
 ### Build Kata Containers Kernel
 Follow the [Kernel installation guide](/tools/packaging/kernel/README.md).

@@ -33,10 +33,10 @@ use log::{debug, error, info, warn};
 use nix::sys::mman;
 use nix::unistd::dup;
 #[cfg(feature = "atomic-guest-memory")]
-use vm_memory::GuestMemoryAtomic;
+use vm_memory::atomic::GuestMemoryAtomic;
 use vm_memory::{
-    address::Address, FileOffset, GuestAddress, GuestAddressSpace, GuestMemoryMmap,
-    GuestMemoryRegion, GuestRegionMmap, GuestUsize, MemoryRegionAddress, MmapRegion,
+    Address, FileOffset, GuestAddress, GuestAddressSpace, GuestMemoryMmap, GuestMemoryRegion,
+    GuestRegionMmap, GuestUsize, MemoryRegionAddress, MmapRegion,
 };
 
 use crate::resource_manager::ResourceManager;
@@ -270,7 +270,7 @@ impl AddressSpaceMgr {
             let size = info
                 .size
                 .checked_shl(20)
-                .ok_or(AddressManagerError::InvalidOperation)?;
+                .ok_or_else(|| AddressManagerError::InvalidOperation)?;
 
             // Guest memory does not intersect with the MMIO hole.
             // TODO: make it work for ARM (issue #4307)
@@ -281,13 +281,13 @@ impl AddressSpaceMgr {
                 regions.push(region);
                 start_addr = start_addr
                     .checked_add(size)
-                    .ok_or(AddressManagerError::InvalidOperation)?;
+                    .ok_or_else(|| AddressManagerError::InvalidOperation)?;
             } else {
                 // Add guest memory below the MMIO hole, avoid splitting the memory region
                 // if the available address region is small than MINIMAL_SPLIT_SPACE MiB.
                 let mut below_size = dbs_boot::layout::MMIO_LOW_START
                     .checked_sub(start_addr)
-                    .ok_or(AddressManagerError::InvalidOperation)?;
+                    .ok_or_else(|| AddressManagerError::InvalidOperation)?;
                 if below_size < (MINIMAL_SPLIT_SPACE) {
                     below_size = 0;
                 } else {
@@ -299,12 +299,12 @@ impl AddressSpaceMgr {
                 let above_start = dbs_boot::layout::MMIO_LOW_END + 1;
                 let above_size = size
                     .checked_sub(below_size)
-                    .ok_or(AddressManagerError::InvalidOperation)?;
+                    .ok_or_else(|| AddressManagerError::InvalidOperation)?;
                 let region = self.create_region(above_start, above_size, info, &mut param)?;
                 regions.push(region);
                 start_addr = above_start
                     .checked_add(above_size)
-                    .ok_or(AddressManagerError::InvalidOperation)?;
+                    .ok_or_else(|| AddressManagerError::InvalidOperation)?;
             }
         }
 
@@ -401,9 +401,9 @@ impl AddressSpaceMgr {
             let flags = 0u32;
 
             let mem_region = kvm_userspace_memory_region {
-                slot,
+                slot: slot as u32,
                 guest_phys_addr: reg.start_addr().raw_value(),
-                memory_size: reg.len(),
+                memory_size: reg.len() as u64,
                 userspace_addr: host_addr as u64,
                 flags,
             };
@@ -421,7 +421,7 @@ impl AddressSpaceMgr {
         self.base_to_slot
             .lock()
             .unwrap()
-            .insert(reg.start_addr().raw_value(), slot);
+            .insert(reg.start_addr().raw_value(), slot as u32);
 
         Ok(())
     }
@@ -502,7 +502,7 @@ impl AddressSpaceMgr {
     fn configure_numa(&self, mmap_reg: &MmapRegion, node_id: u32) -> Result<()> {
         let nodemask = 1_u64
             .checked_shl(node_id)
-            .ok_or(AddressManagerError::InvalidOperation)?;
+            .ok_or_else(|| AddressManagerError::InvalidOperation)?;
         let res = unsafe {
             libc::syscall(
                 libc::SYS_mbind,

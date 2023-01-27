@@ -318,8 +318,6 @@ type VhostUserDeviceAttrs struct {
 	Index int
 
 	CacheSize uint32
-
-	QueueSize uint32
 }
 
 // GetHostPathFunc is function pointer used to mock GetHostPath in tests.

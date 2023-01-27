@@ -9,23 +9,18 @@ set -o nounset
 set -o pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-source "${script_dir}/../../scripts/lib.sh"
-
+readonly repo_root_dir="$(cd "${script_dir}/../../../.." && pwd)"
 readonly kernel_builder="${repo_root_dir}/tools/packaging/kernel/build-kernel.sh"
+
 
 DESTDIR=${DESTDIR:-${PWD}}
 PREFIX=${PREFIX:-/opt/kata}
-container_image="${KERNEL_CONTAINER_BUILDER:-$(get_kernel_image_name)}"
+container_image="kata-kernel-builder"
 
-sudo docker pull ${container_image} || \
-	(sudo docker build -t "${container_image}" "${script_dir}" && \
- 	# No-op unless PUSH_TO_REGISTRY is exported as "yes"
- 	push_to_registry "${container_image}")
+sudo docker build -t "${container_image}" "${script_dir}"
 
 sudo docker run --rm -i -v "${repo_root_dir}:${repo_root_dir}" \
 	-w "${PWD}" \
-	--env KATA_BUILD_CC="${KATA_BUILD_CC:-}" \
 	"${container_image}" \
 	bash -c "${kernel_builder} $* setup"
 

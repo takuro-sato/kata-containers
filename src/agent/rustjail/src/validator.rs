@@ -6,7 +6,6 @@
 use crate::container::Config;
 use anyhow::{anyhow, Context, Result};
 use oci::{Linux, LinuxIdMapping, LinuxNamespace, Spec};
-use regex::Regex;
 use std::collections::HashMap;
 use std::path::{Component, PathBuf};
 
@@ -87,23 +86,6 @@ fn hostname(oci: &Spec) -> Result<()> {
 
 fn security(oci: &Spec) -> Result<()> {
     let linux = get_linux(oci)?;
-    let label_pattern = r".*_u:.*_r:.*_t:s[0-9]|1[0-5].*";
-    let label_regex = Regex::new(label_pattern)?;
-
-    if let Some(ref process) = oci.process {
-        if !process.selinux_label.is_empty() && !label_regex.is_match(&process.selinux_label) {
-            return Err(anyhow!(
-                "SELinux label for the process is invalid format: {}",
-                &process.selinux_label
-            ));
-        }
-    }
-    if !linux.mount_label.is_empty() && !label_regex.is_match(&linux.mount_label) {
-        return Err(anyhow!(
-            "SELinux label for the mount is invalid format: {}",
-            &linux.mount_label
-        ));
-    }
 
     if linux.masked_paths.is_empty() && linux.readonly_paths.is_empty() {
         return Ok(());
@@ -112,6 +94,8 @@ fn security(oci: &Spec) -> Result<()> {
     if !contain_namespace(&linux.namespaces, "mount") {
         return Err(anyhow!("Linux namespace does not contain mount"));
     }
+
+    // don't care about selinux at present
 
     Ok(())
 }
@@ -301,7 +285,7 @@ pub fn validate(conf: &Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oci::{Mount, Process};
+    use oci::Mount;
 
     #[test]
     fn test_namespace() {
@@ -404,29 +388,6 @@ mod tests {
         ];
         spec.linux = Some(linux);
         security(&spec).unwrap();
-
-        // SELinux
-        let valid_label = "system_u:system_r:container_t:s0:c123,c456";
-        let mut process = Process::default();
-        process.selinux_label = valid_label.to_string();
-        spec.process = Some(process);
-        security(&spec).unwrap();
-
-        let mut linux = Linux::default();
-        linux.mount_label = valid_label.to_string();
-        spec.linux = Some(linux);
-        security(&spec).unwrap();
-
-        let invalid_label = "system_u:system_r:container_t";
-        let mut process = Process::default();
-        process.selinux_label = invalid_label.to_string();
-        spec.process = Some(process);
-        security(&spec).unwrap_err();
-
-        let mut linux = Linux::default();
-        linux.mount_label = invalid_label.to_string();
-        spec.linux = Some(linux);
-        security(&spec).unwrap_err();
     }
 
     #[test]
