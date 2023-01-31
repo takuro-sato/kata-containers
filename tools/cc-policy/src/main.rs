@@ -10,6 +10,7 @@ mod oci;
 mod pod_yaml;
 mod policy;
 
+use kubernetes::KubeCtl;
 use pod_yaml::*;
 use policy::*;
 
@@ -24,14 +25,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
 struct Cli {
-    #[clap(short = 'i', long = "input", default_value = "")]
-    input_yaml: PathBuf,
-    #[clap(long = "image_ref", default_value = "")]
-    image_ref: String,
-    #[clap(short = 'o', long = "output", default_value = "")]
-    output_yaml: PathBuf,
-    #[clap(short = 'p', long = "policy", default_value = "")]
-    output_policy: PathBuf,
+    #[clap(short = 'i', long = "input")]
+    input_yaml: Option<PathBuf>,
+    #[clap(long = "image_ref")]
+    image_ref: Option<String>,
+    #[clap(short = 'o', long = "output")]
+    output_yaml: Option<PathBuf>,
+    #[clap(short = 'p', long = "policy")]
+    output_policy: Option<PathBuf>,
     #[clap(long = "with_default_rules")]
     with_default_rules: bool,
     #[clap(short = 'v', long = "verbose")]
@@ -63,10 +64,14 @@ fn create_and_inject_policy(
     let mut policy_list = Vec::new();
     let mut policy_base64_list = Vec::new();
 
+    let yaml_from_dry_run = KubeCtl::get_yaml_with_dry_run_server(path)?;
+
     for doc in serde_yaml::Deserializer::from_str(yaml.as_str()) {
         let mut yaml = serde_yaml::Value::deserialize(doc)?;
 
-        if let Ok((kind, policy, policy_base64)) = get_policy_from_yaml(&yaml, with_default_rules) {
+        if let Ok((kind, policy, policy_base64)) =
+            get_policy_from_yaml(&yaml_from_dry_run, with_default_rules)
+        {
             patch_yaml(&mut yaml, &kind, &policy_base64)?;
             policy_list.push(policy.clone());
             policy_base64_list.push(policy_base64.clone());
@@ -104,11 +109,11 @@ fn write_to_file(data: &str, path: &PathBuf) -> Result<()> {
 fn main() -> Result<()> {
     let args = Cli::parse();
 
-    if args.input_yaml.as_os_str().is_empty() && args.image_ref.is_empty() {
+    if args.input_yaml == None && args.image_ref == None {
         bail!("Please specify either input_yaml or image_ref");
     }
 
-    if !args.input_yaml.as_os_str().is_empty() && !args.image_ref.is_empty() {
+    if args.input_yaml != None && args.image_ref != None {
         bail!("Cannot specify input_yaml and image_ref at the same time");
     }
 
@@ -116,12 +121,13 @@ fn main() -> Result<()> {
     let policy_encoded;
     let mut patched_yaml = String::new();
 
-    if !args.input_yaml.as_os_str().is_empty() {
+    if let Some(input_yaml) = args.input_yaml {
         (policy, policy_encoded, patched_yaml) =
-            create_and_inject_policy(&args.input_yaml, args.with_default_rules)?;
+            create_and_inject_policy(&input_yaml, args.with_default_rules)?;
+    } else if let Some(image_ref) = args.image_ref {
+        (policy, policy_encoded) = create_policy_by_image_ref(&image_ref, args.with_default_rules)?;
     } else {
-        (policy, policy_encoded) =
-            create_policy_by_image_ref(&args.image_ref, args.with_default_rules)?;
+        unreachable!();
     }
 
     if args.verbose {
@@ -130,12 +136,12 @@ fn main() -> Result<()> {
         println!("Encoding size: {}", policy_encoded.len());
     }
 
-    if !args.output_policy.as_os_str().is_empty() {
-        write_to_file(&policy, &args.output_policy)?;
+    if let Some(output_policy) = args.output_policy {
+        write_to_file(&policy, &output_policy)?;
     }
 
-    if !args.output_yaml.as_os_str().is_empty() {
-        write_to_file(&patched_yaml, &args.output_yaml)?;
+    if let Some(output_yaml) = args.output_yaml {
+        write_to_file(&patched_yaml, &output_yaml)?;
     }
 
     Ok(())
