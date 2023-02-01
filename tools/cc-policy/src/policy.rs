@@ -133,7 +133,7 @@ impl ContainerPolicy {
         } else {
             empty_spec()?
         };
-        let kube_rules = kubernetes::get_rules(false)?;
+        let k8s_rules = kubernetes::get_rules(false)?;
         let image_name = container["image"]
             .as_str()
             .ok_or_else(|| anyhow!("failed to parse image into string"))?;
@@ -141,14 +141,14 @@ impl ContainerPolicy {
         let image_config = pull_image_config(image_name)?;
         //let allow_elevated = security_context.allow_elevated;
 
-        Self::get_process(&mut oci_spec, container, &image_config, &kube_rules)?;
+        Self::get_process(&mut oci_spec, container, &image_config, &k8s_rules)?;
 
         Self::get_mounts(
             &mut oci_spec,
             Some(pod_yaml),
             container,
             &image_config,
-            &kube_rules,
+            &k8s_rules,
         )?;
 
         let custom = Some(Custom { layers });
@@ -205,7 +205,7 @@ impl ContainerPolicy {
         spec: &Spec,
         container: &serde_yaml::Value,
         image_config: &ImageConfiguration,
-        kube_rules: &Spec,
+        k8s_rules: &Spec,
     ) -> Result<Vec<String>> {
         // Override rule: the latter variables will override the former ones with the same name
         // Order based on the CRI:
@@ -222,15 +222,15 @@ impl ContainerPolicy {
             }
         }
 
-        let mut kube_envs = Vec::new();
+        let mut k8s_envs = Vec::new();
 
-        if let Some(process) = kube_rules.process() {
+        if let Some(process) = k8s_rules.process() {
             if let Some(envs) = process.env() {
-                kube_envs = envs.clone();
+                k8s_envs = envs.clone();
             }
         }
 
-        merge_process_env(&mut results, &kube_envs)?;
+        merge_process_env(&mut results, &k8s_envs)?;
 
         let image_envs = image::get_env(image_config)?;
 
@@ -247,7 +247,7 @@ impl ContainerPolicy {
         spec: &mut Spec,
         container: &serde_yaml::Value,
         image_config: &ImageConfiguration,
-        kube_rules: &Spec,
+        k8s_rules: &Spec,
     ) -> Result<()> {
         let (working_dir, command, args) = PodYaml::get_entry_point(container)?;
 
@@ -270,7 +270,7 @@ impl ContainerPolicy {
             process.set_cwd(cwd);
         }
 
-        let env = Self::get_env(spec, container, image_config, kube_rules)?;
+        let env = Self::get_env(spec, container, image_config, k8s_rules)?;
 
         process.set_args(Some(args));
         process.set_env(Some(env));
@@ -285,7 +285,7 @@ impl ContainerPolicy {
         pod_yaml: Option<&PodYaml>,
         container: &serde_yaml::Value,
         image_config: &ImageConfiguration,
-        kube_rules: &Spec,
+        k8s_rules: &Spec,
     ) -> Result<()> {
         let pod_mounts = if let Some(pod_yaml) = pod_yaml {
             pod_yaml.get_mounts(container)?
@@ -300,8 +300,8 @@ impl ContainerPolicy {
         // - Default mounts
         let image_volumes = get_image_volume_mounts(image_config)?;
 
-        let results = if let Some(kube_mounts) = kube_rules.mounts() {
-            merge_mounts(&pod_mounts, kube_mounts)?
+        let results = if let Some(k8s_mounts) = k8s_rules.mounts() {
+            merge_mounts(&pod_mounts, k8s_mounts)?
         } else {
             pod_mounts
         };

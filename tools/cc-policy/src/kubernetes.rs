@@ -1,8 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0 license.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
+use checked_command::{CheckedCommand, Error};
 use oci_spec::runtime::{Process, Spec};
+use std::path::PathBuf;
+
+const KUBECTL: &str = "kubectl";
 
 // The default image version of the pause container is based
 // on https://github.com/kubernetes/kubernetes/blob/release-1.23/cmd/kubeadm/app/constants/constants.go#L415
@@ -11,6 +15,73 @@ use oci_spec::runtime::{Process, Spec};
 pub const KUBERNETES_PAUSE_VERSION: &str = "3.6";
 pub const KUBERNETES_PAUSE_NAME: &str = "pause";
 pub const KUBERNETES_REGISTRY: &str = "registry.k8s.io";
+
+pub struct KubeCtl;
+
+impl KubeCtl {
+    pub fn get_config_map(name: &str) -> Result<serde_yaml::Value> {
+        let output = match CheckedCommand::new(KUBECTL)
+            .arg("get")
+            .arg("configmap")
+            .arg(name)
+            .arg("-o")
+            .arg("yaml")
+            .output()
+        {
+            Ok(result) => String::from_utf8(result.stdout)?,
+            Err(Error::Failure(ex, output)) => {
+                println!("failed with exit code: {:?}", ex.code());
+                if let Some(output) = output {
+                    bail!(
+                        "{}: kubectl failed: {}",
+                        loc!(),
+                        String::from_utf8_lossy(&*output.stderr)
+                    );
+                }
+                bail!("{}", loc!());
+            }
+            Err(Error::Io(io_err)) => {
+                bail!("{}: unexpected I/O error: {:?}", loc!(), io_err);
+            }
+        };
+
+        let config_map: serde_yaml::Value = serde_yaml::from_str(&output)?;
+
+        Ok(config_map)
+    }
+
+    pub fn get_yaml_with_dry_run_server(file: &PathBuf) -> Result<serde_yaml::Value> {
+        let output = match CheckedCommand::new(KUBECTL)
+            .arg("apply")
+            .arg("-f")
+            .arg(file)
+            .arg("--dry-run=server")
+            .arg("-o")
+            .arg("yaml")
+            .output()
+        {
+            Ok(result) => String::from_utf8(result.stdout)?,
+            Err(Error::Failure(ex, output)) => {
+                println!("failed with exit code: {:?}", ex.code());
+                if let Some(output) = output {
+                    bail!(
+                        "{}: kubectl failed: {}",
+                        loc!(),
+                        String::from_utf8_lossy(&*output.stderr)
+                    );
+                }
+                bail!("{}", loc!());
+            }
+            Err(Error::Io(io_err)) => {
+                bail!("{}: unexpected I/O error: {:?}", loc!(), io_err);
+            }
+        };
+
+        let pod_yaml: serde_yaml::Value = serde_yaml::from_str(&output)?;
+
+        Ok(pod_yaml)
+    }
+}
 
 fn get_container_rules() -> Result<Spec> {
     let mut spec: Spec = serde_json::from_str("{}")?;
@@ -42,36 +113,6 @@ fn get_container_rules() -> Result<Spec> {
     process.set_env(Some(env));
 
     spec.set_process(Some(process));
-
-    // TODO: Add reference
-    let mounts = serde_json::from_str(
-        r#"
-    [
-        {
-            "destination": "/dev/termination-log",
-            "source": "^/run/kata-containers/shared/containers/[a-z0-9]+-[a-z0-9]+-termination-log$",
-            "type": "bind",
-            "options": [
-                "rbind",
-                "rprivate",
-                "rw"
-            ]
-        },
-        {
-            "destination": "/var/run/secrets/kubernetes.io/serviceaccount",
-            "source": "^/run/kata-containers/shared/containers/[a-z0-9]+-[a-z0-9]+-serviceaccount$",
-            "type": "bind",
-            "options": [
-                "rbind",
-                "rprivate",
-                "ro"
-            ]
-        }
-    ]
-    "#,
-    )?;
-
-    spec.set_mounts(Some(mounts));
 
     Ok(spec)
 }

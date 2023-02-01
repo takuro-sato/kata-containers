@@ -1,14 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the Apache 2.0 license.
 
+use crate::kubernetes::KubeCtl;
+
 use anyhow::{anyhow, bail, Result};
-use checked_command::{CheckedCommand, Error};
 use oci_spec::runtime::Mount;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-
-const KUBECTL: &str = "kubectl";
 
 const CC_POLICY_KEY: &str = "io.katacontainers.cc_policy";
 
@@ -159,32 +158,7 @@ impl<'input> PodYaml<'input> {
             .as_str()
             .ok_or_else(|| anyhow!("failed to parse key into str"))?;
 
-        let output = match CheckedCommand::new(KUBECTL)
-            .arg("get")
-            .arg("configmap")
-            .arg(name)
-            .arg("-o")
-            .arg("yaml")
-            .output()
-        {
-            Ok(result) => String::from_utf8(result.stdout)?,
-            Err(Error::Failure(ex, output)) => {
-                println!("failed with exit code: {:?}", ex.code());
-                if let Some(output) = output {
-                    bail!(
-                        "{}: kubectl failed: {}",
-                        loc!(),
-                        String::from_utf8_lossy(&*output.stderr)
-                    );
-                }
-                bail!("{}", loc!());
-            }
-            Err(Error::Io(io_err)) => {
-                bail!("{}: unexpected I/O error: {:?}", loc!(), io_err);
-            }
-        };
-
-        let config_map: serde_yaml::Value = serde_yaml::from_str(&output)?;
+        let config_map: serde_yaml::Value = KubeCtl::get_config_map(name)?;
 
         let data = config_map["data"]
             .as_mapping()
@@ -462,6 +436,49 @@ impl<'input> PodYaml<'input> {
                 mount.set_options(Some(options));
 
                 results.push(mount);
+            }
+        }
+
+        // Add the termination message mount based on
+        // https://github.com/kubernetes/kubernetes/blob/release-1.23/pkg/kubelet/kuberuntime/kuberuntime_container.go#L400
+        if let Some(path) = container.get("terminationMessagePath") {
+            let path = path
+                .as_str()
+                .ok_or_else(|| anyhow!("failed to parse terminationMessagePath into string"))?;
+
+            if let Some(policy) = container.get("terminationMessagePolicy") {
+                let policy = policy.as_str().ok_or_else(|| {
+                    anyhow!("failed to parse terminationMessagePolicy into string")
+                })?;
+
+                // TODO: Check this
+                // Ensure the terminationMessagePath is File
+                if policy == "File" {
+                    let path = PathBuf::from(path);
+                    let file_name = path.as_path().file_name().unwrap();
+                    let file_name = file_name.to_str().unwrap();
+
+                    let mut mount = Mount::default();
+
+                    mount.set_destination(path.clone());
+                    mount.set_typ(Some("bind".to_string()));
+                    mount.set_source(Some(PathBuf::from(
+                        [
+                            "^/run/kata-containers/shared/containers/[a-z0-9]+-[a-z0-9]+-",
+                            file_name,
+                            "$",
+                        ]
+                        .concat(),
+                    )));
+                    mount.set_options(Some(
+                        vec!["rbind", "rprivate", "rw"]
+                            .into_iter()
+                            .map(String::from)
+                            .collect(),
+                    ));
+
+                    results.push(mount);
+                }
             }
         }
 
