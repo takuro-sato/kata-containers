@@ -20,7 +20,7 @@ use std::fmt;
 const CC_POLICY_VERSION: &str = "0.1.0";
 
 #[derive(Serialize, Deserialize)]
-pub struct Custom {
+pub struct Extras {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layers: Vec<String>,
 }
@@ -29,7 +29,7 @@ pub struct Custom {
 pub struct ContainerPolicy {
     pub oci_spec: Spec,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub custom: Option<Custom>,
+    pub extras: Option<Extras>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -116,7 +116,17 @@ impl CcPolicy {
 
 impl fmt::Display for CcPolicy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", serde_json::to_string_pretty(&self).unwrap())
+        let header = "package cc_policy\n\n".to_string();
+
+        let version = format!("version := \"{}\"\n\n", self.version);
+
+        let containers = serde_json::to_string_pretty(&self.containers).unwrap();
+
+        let containers = ["containers := ", &containers].concat();
+
+        let rego = [header, version, containers].concat();
+
+        write!(f, "{}", rego)
     }
 }
 
@@ -151,9 +161,9 @@ impl ContainerPolicy {
             &k8s_rules,
         )?;
 
-        let custom = Some(Custom { layers });
+        let extras = Some(Extras { layers });
 
-        Ok(ContainerPolicy { oci_spec, custom })
+        Ok(ContainerPolicy { oci_spec, extras })
     }
 
     pub fn from_image_ref(image_ref: &str, with_default_rules: bool) -> Result<ContainerPolicy> {
@@ -175,9 +185,9 @@ impl ContainerPolicy {
         Self::get_mounts(&mut oci_spec, None, &container, &image_config, &empty_spec)
             .context(loc!())?;
 
-        let custom = Some(Custom { layers });
+        let extras = Some(Extras { layers });
 
-        Ok(ContainerPolicy { oci_spec, custom })
+        Ok(ContainerPolicy { oci_spec, extras })
     }
 
     pub fn create_sandbox_policy() -> Result<ContainerPolicy> {
@@ -196,9 +206,9 @@ impl ContainerPolicy {
 
         Self::get_mounts(&mut oci_spec, None, &container, &image_config, &empty_spec)?;
 
-        let custom = Some(Custom { layers });
+        let extras = Some(Extras { layers });
 
-        Ok(ContainerPolicy { oci_spec, custom })
+        Ok(ContainerPolicy { oci_spec, extras })
     }
 
     fn get_env(
