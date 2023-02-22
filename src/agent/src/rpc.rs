@@ -166,7 +166,7 @@ macro_rules! is_allowed_create_container {
         if !AGENT_POLICY
             .lock()
             .await
-            .is_allowed_create_container_endpoint($req.descriptor().name(), &$req)
+            .is_allowed_create_container($req.descriptor().name(), &$req)
             .await
         {
             return Err(ttrpc_error!(
@@ -177,6 +177,23 @@ macro_rules! is_allowed_create_container {
     }
 }
 
+macro_rules! is_allowed_create_sandbox {
+    ($req:ident) => {
+        config_allows!($req);
+
+        if !AGENT_POLICY
+            .lock()
+            .await
+            .is_allowed_create_sandbox($req.descriptor().name(), &$req)
+            .await
+        {
+            return Err(ttrpc_error!(
+                ttrpc::Code::PERMISSION_DENIED,
+                format!("{} is blocked by policy", $req.descriptor().name()),
+            ));
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct AgentService {
@@ -1353,7 +1370,7 @@ impl agent_ttrpc::AgentService for AgentService {
         req: protocols::agent::CreateSandboxRequest,
     ) -> ttrpc::Result<Empty> {
         trace_rpc_call!(ctx, "create_sandbox", req);
-        is_allowed!(req);
+        is_allowed_create_sandbox!(req);
 
         {
             let sandbox = self.sandbox.clone();
