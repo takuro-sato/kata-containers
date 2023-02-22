@@ -274,7 +274,7 @@ copy_kernel_modules()
 	mkdir -p "${dest_dir}"
 	cp -a "${KERNEL_MODULES_DIR}" "${dest_dir}/"
 	local KERNEL_VER=$(ls ${dest_dir})
-	depmod -b "${rootfs_dir}" ${KERNEL_VER}
+	depmod -a -b "${rootfs_dir}" ${KERNEL_VER}
 	OK "Kernel modules copied"
 }
 
@@ -733,6 +733,9 @@ EOF
 		info "Install init_trusted_storage script for CC"
 		install -o root -g root -m 0500 "${script_dir}/init_trusted_storage.sh" "${ROOTFS_DIR}/usr/bin/kata-init-trusted-storage"
 	fi
+
+	info "Install mount script for tar devices"
+	install -o root -g root -m 0500 "${script_dir}/../../../src/agent/mount_tar.sh" "${ROOTFS_DIR}/usr/bin/mount_tar.sh"
 
 	info "Creating summary file"
 	create_summary_file "${ROOTFS_DIR}"
