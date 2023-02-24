@@ -522,13 +522,29 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 	// set random device generator to hypervisor
 	clh.vmconfig.Rng = chclient.NewRngConfig(clh.config.EntropySource)
 
+
+///////////////////////////////////////////////////////// dallas
+	clh.Logger().WithField("dallas 1", "CreateVM").Info("debugging")
+	igvmPath, err := clh.config.IgvmAssetPath()
+	if err != nil {
+		clh.Logger().WithField("dallas 1", "CreateVM FAILED").Info("debugging")
+		return err
+	}
+
+	clh.Logger().WithField("dallas 2", "CreateVM").Info("debugging")
+	if igvmPath != "" {
+		clh.Logger().WithField("dallas 2", "CreateVM").Info("igvm path is not none")
+
+	}
+/////////////////////////////////////////////////////////
+
 	// set the initial root/boot disk of hypervisor
 	imagePath, err := clh.config.ImageAssetPath()
 	if err != nil {
 		return err
 	}
 
-	if imagePath != "" {
+	if igvmPath == "" && imagePath != "" {
 		if clh.config.ConfidentialGuest {
 			disk := chclient.NewDiskConfig(imagePath)
 			disk.SetReadonly(true)

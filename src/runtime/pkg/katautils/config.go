@@ -963,6 +963,7 @@ func newClhHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		return vc.HypervisorConfig{}, err
 	}
 
+	kataUtilsLogger.WithField("*** IGVM() parsed", p).Info("dallas igvm")
 
 	if image == "" && initrd == "" {
 		return vc.HypervisorConfig{},
@@ -1125,6 +1126,9 @@ func updateRuntimeConfigHypervisor(configPath string, tomlConf tomlConfig, confi
 		case clhHypervisorTableType:
 			config.HypervisorType = vc.ClhHypervisor
 			hConfig, err = newClhHypervisorConfig(hypervisor)
+			kataUtilsLogger.Info("dallas igvm -> CLH config set")
+			
+
 		case dragonballHypervisorTableType:
 			config.HypervisorType = vc.DragonballHypervisor
 			hConfig, err = newDragonballHypervisorConfig(hypervisor)
