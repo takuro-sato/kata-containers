@@ -79,6 +79,7 @@ type factory struct {
 }
 
 type hypervisor struct {
+	Igvm                           string   `toml:"igvm"`
 	Path                           string   `toml:"path"`
 	JailerPath                     string   `toml:"jailer_path"`
 	Kernel                         string   `toml:"kernel"`
@@ -263,6 +264,24 @@ func (h hypervisor) image() (string, error) {
 	if p == "" {
 		return "", nil
 	}
+	kataUtilsLogger.WithField("dallas *** normal image set", p).Info("dallas image")
+
+	return ResolvePath(p)
+}
+
+func (h hypervisor) igvm() (string, error) {
+	p := h.Igvm
+
+	if p == "" {
+		return "", nil
+	}
+	// kataUtilsLogger.WithFields(
+	// 	logrus.Fields{
+	// 		"igvm file":   p,
+	// 	}).Info("dallas *** IGVM set")
+	kataUtilsLogger.WithField("dallas *** IGVM set", p).Info("dallas igvm")
+
+	// kataUtilsLogger.Info("dallas *** IGVM set")
 
 	return ResolvePath(p)
 }
@@ -939,6 +958,12 @@ func newClhHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		return vc.HypervisorConfig{}, err
 	}
 
+	igvm, err := h.igvm()
+	if err != nil {
+		return vc.HypervisorConfig{}, err
+	}
+
+
 	if image == "" && initrd == "" {
 		return vc.HypervisorConfig{},
 			errors.New("image or initrd must be defined in the configuration file")
@@ -978,6 +1003,7 @@ func newClhHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		KernelPath:                     kernel,
 		InitrdPath:                     initrd,
 		ImagePath:                      image,
+		IgvmPath:                       igvm,
 		FirmwarePath:                   firmware,
 		MachineAccelerators:            machineAccelerators,
 		KernelParams:                   vc.DeserializeParams(strings.Fields(kernelParams)),

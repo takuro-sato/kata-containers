@@ -257,6 +257,7 @@ type HypervisorConfig struct {
 	KernelPath                     string
 	ImagePath                      string
 	InitrdPath                     string
+	IgvmPath                       string
 	FirmwarePath                   string
 	FirmwareVolumePath             string
 	MachineAccelerators            string
