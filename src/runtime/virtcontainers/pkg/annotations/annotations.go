@@ -68,6 +68,8 @@ const (
 	// ImageHash is an sandbox annotation for passing a container guest image SHA-512 hash value.
 	ImageHash = kataAnnotHypervisorPrefix + "image_hash"
 
+	IgvmHash = kataAnnotHypervisorPrefix + "igvm_hash"
+
 	// InitrdHash is an sandbox annotation for passing a container guest initrd SHA-512 hash value.
 	InitrdHash = kataAnnotHypervisorPrefix + "initrd_hash"
 

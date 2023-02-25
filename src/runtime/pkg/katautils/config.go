@@ -963,8 +963,8 @@ func newClhHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		return vc.HypervisorConfig{}, err
 	}
 
-	kataUtilsLogger.WithField("*** IGVM() parsed", p).Info("dallas igvm")
-
+	kataUtilsLogger.Info("dallas *** IGVM() parsed")
+	
 	if image == "" && initrd == "" {
 		return vc.HypervisorConfig{},
 			errors.New("image or initrd must be defined in the configuration file")

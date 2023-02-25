@@ -517,13 +517,11 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 	// Followed by extra kernel parameters defined in the configuration file
 	params = append(params, clh.config.KernelParams...)
 
-	clh.vmconfig.Payload.SetCmdline(kernelParamsToString(params))
+	// clh.vmconfig.Payload.SetCmdline(kernelParamsToString(params))
 
-	// set random device generator to hypervisor
-	clh.vmconfig.Rng = chclient.NewRngConfig(clh.config.EntropySource)
-
-
+////////////////////////////////////////////////
 ///////////////////////////////////////////////////////// dallas
+	// parse path
 	clh.Logger().WithField("dallas 1", "CreateVM").Info("debugging")
 	igvmPath, err := clh.config.IgvmAssetPath()
 	if err != nil {
@@ -531,12 +529,30 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 		return err
 	}
 
+	// enforce actions
 	clh.Logger().WithField("dallas 2", "CreateVM").Info("debugging")
 	if igvmPath != "" {
-		clh.Logger().WithField("dallas 2", "CreateVM").Info("igvm path is not none")
+		clh.Logger().WithField("igvm path: ", igvmPath).Info("dallas 2 CreateVM")
+		// igvm := chclient.NewIgvmConfig(imagePath)
+		// *igvm.DiscardWrites = true
 
+		// if clh.vmconfig.Pmem != nil {
+		// 	*clh.vmconfig.Igvm = append(*clh.vmconfig.Igvm, *igvm)
+		// } else {
+		// 	clh.vmconfig.Igvm = &[]chclient.IgvmConfig{*igvm}
+		// }
+		
+	} else {
+		clh.Logger().WithField("igvm path is NULL: ", kernelParamsToString(params)).Info("dallas 2 CreateVM showing kernel params")
+		clh.vmconfig.Payload.SetCmdline(kernelParamsToString(params))
 	}
 /////////////////////////////////////////////////////////
+///////////////////////////////////////////////
+
+
+	// set random device generator to hypervisor
+	clh.vmconfig.Rng = chclient.NewRngConfig(clh.config.EntropySource)
+
 
 	// set the initial root/boot disk of hypervisor
 	imagePath, err := clh.config.ImageAssetPath()
@@ -544,7 +560,7 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 		return err
 	}
 
-	if igvmPath == "" && imagePath != "" {
+	if imagePath != "" {
 		if clh.config.ConfidentialGuest {
 			disk := chclient.NewDiskConfig(imagePath)
 			disk.SetReadonly(true)

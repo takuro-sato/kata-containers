@@ -428,7 +428,7 @@ func (conf *HypervisorConfig) assetPath(t types.AssetType) (string, error) {
 	case types.ImageAsset:
 		return conf.ImagePath, nil
 	case types.IgvmAsset:
-		return conf.IgvmAsset, nil
+		return conf.IgvmPath, nil
 	case types.InitrdAsset:
 		return conf.InitrdPath, nil
 	case types.HypervisorAsset:
