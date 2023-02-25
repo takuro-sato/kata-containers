@@ -533,14 +533,14 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 	clh.Logger().WithField("dallas 2", "CreateVM").Info("debugging")
 	if igvmPath != "" {
 		clh.Logger().WithField("igvm path: ", igvmPath).Info("dallas 2 CreateVM")
-		// igvm := chclient.NewIgvmConfig(imagePath)
-		// *igvm.DiscardWrites = true
+		igvm := chclient.NewIgvmConfig(igvmPath)
+		*igvm.DiscardWrites = true
 
-		// if clh.vmconfig.Pmem != nil {
-		// 	*clh.vmconfig.Igvm = append(*clh.vmconfig.Igvm, *igvm)
-		// } else {
-		// 	clh.vmconfig.Igvm = &[]chclient.IgvmConfig{*igvm}
-		// }
+		if clh.vmconfig.Igvm != nil {
+			*clh.vmconfig.Igvm = append(*clh.vmconfig.Igvm, *igvm)
+		} else {
+			clh.vmconfig.Igvm = &[]chclient.IgvmConfig{*igvm}
+		}
 		
 	} else {
 		clh.Logger().WithField("igvm path is NULL: ", kernelParamsToString(params)).Info("dallas 2 CreateVM showing kernel params")
