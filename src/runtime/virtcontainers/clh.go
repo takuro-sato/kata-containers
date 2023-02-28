@@ -1263,6 +1263,7 @@ func (clh *cloudHypervisor) clhPath() (string, error) {
 
 func (clh *cloudHypervisor) launchClh() (int, error) {
 
+	clh.Logger().Info("DALLAS launchClh()")
 	clhPath, err := clh.clhPath()
 	if err != nil {
 		return -1, err
@@ -1418,17 +1419,22 @@ func (clh *cloudHypervisor) bootVM(ctx context.Context) error {
 
 	cl := clh.client()
 
-	if clh.config.Debug {
+	if !clh.config.Debug {
 		bodyBuf, err := json.Marshal(clh.vmconfig)
 		if err != nil {
 			return err
 		}
-		clh.Logger().WithField("body", string(bodyBuf)).Debug("VM config")
+		clh.Logger().WithField("body", string(bodyBuf)).Info("Dallas ****** VM config")
 	}
+
 	_, err := cl.CreateVM(ctx, clh.vmconfig)
 	if err != nil {
 		return openAPIClientError(err)
 	}
+
+
+	bodyBuf, err := json.Marshal(clh.vmconfig)
+	clh.Logger().WithField("body", string(bodyBuf)).Info("Dallas ****** VM config")
 
 	info, err := clh.vmInfo()
 	if err != nil {
@@ -1436,6 +1442,7 @@ func (clh *cloudHypervisor) bootVM(ctx context.Context) error {
 	}
 
 	clh.Logger().Debugf("VM state after create: %#v", info)
+	clh.Logger().WithField("VM state after create: %#v", info).Info("Dallas ****** VM state after create:")
 
 	if info.State != clhStateCreated {
 		return fmt.Errorf("VM state is not 'Created' after 'CreateVM'")
