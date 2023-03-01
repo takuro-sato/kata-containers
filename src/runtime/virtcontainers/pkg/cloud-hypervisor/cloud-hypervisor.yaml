@@ -281,6 +281,28 @@ paths:
         500:
           description: The new device could not be added to the VM instance.
 
+  /vm.add-igvm:
+    put:
+      summary: Add a new igvm device to the VM
+      requestBody:
+        description: The details of the new igvm device
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IgvmConfig"
+        required: true
+      responses:
+        200:
+          description: The new device was successfully added to the VM instance.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PciDeviceInfo"
+        204:
+          description: The new device was successfully (cold) added to the VM instance.
+        500:
+          description: The new device could not be added to the VM instance.
+
   /vm.add-net:
     put:
       summary: Add a new network device to the VM
@@ -541,6 +563,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PmemConfig"
+        igvm:
+          type: array
+          items:
+            $ref: "#/components/schemas/IgvmConfig"
         serial:
           $ref: "#/components/schemas/ConsoleConfig"
         console:
@@ -897,6 +923,28 @@ components:
           type: string
 
     PmemConfig:
+      required:
+        - file
+      type: object
+      properties:
+        file:
+          type: string
+        size:
+          type: integer
+          format: int64
+        iommu:
+          type: boolean
+          default: false
+        discard_writes:
+          type: boolean
+          default: false
+        pci_segment:
+          type: integer
+          format: int16
+        id:
+          type: string
+
+    IgvmConfig:
       required:
         - file
       type: object

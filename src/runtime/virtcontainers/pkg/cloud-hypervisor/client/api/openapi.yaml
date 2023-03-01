@@ -264,6 +264,27 @@ paths:
         "500":
           description: The new device could not be added to the VM instance.
       summary: Add a new pmem device to the VM
+  /vm.add-igvm:
+    put:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IgvmConfig'
+        description: The details of the new igvm device
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PciDeviceInfo'
+          description: The new device was successfully added to the VM instance.
+        "204":
+          description: The new device was successfully (cold) added to the VM instance.
+        "500":
+          description: The new device could not be added to the VM instance.
+      summary: Add a new igvm device to the VM
   /vm.add-net:
     put:
       requestBody:
@@ -634,6 +655,19 @@ components:
             iommu: false
             id: id
             discard_writes: false
+          igvm:
+          - pci_segment: 5
+            file: file
+            size: 6
+            iommu: false
+            id: id
+            discard_writes: false
+          - pci_segment: 5
+            file: file
+            size: 6
+            iommu: false
+            id: id
+            discard_writes: false
           watchdog: false
           iommu: false
           payload:
@@ -986,6 +1020,19 @@ components:
           iommu: false
           id: id
           discard_writes: false
+        igvm:
+        - pci_segment: 5
+          file: file
+          size: 6
+          iommu: false
+          id: id
+          discard_writes: false
+        - pci_segment: 5
+          file: file
+          size: 6
+          iommu: false
+          id: id
+          discard_writes: false
         watchdog: false
         iommu: false
         payload:
@@ -1065,6 +1112,10 @@ components:
         pmem:
           items:
             $ref: '#/components/schemas/PmemConfig'
+          type: array
+        igvm:
+          items:
+            $ref: '#/components/schemas/IgvmConfig'
           type: array
         serial:
           $ref: '#/components/schemas/ConsoleConfig'
@@ -1563,6 +1614,34 @@ components:
       - tag
       type: object
     PmemConfig:
+      example:
+        pci_segment: 5
+        file: file
+        size: 6
+        iommu: false
+        id: id
+        discard_writes: false
+      properties:
+        file:
+          type: string
+        size:
+          format: int64
+          type: integer
+        iommu:
+          default: false
+          type: boolean
+        discard_writes:
+          default: false
+          type: boolean
+        pci_segment:
+          format: int16
+          type: integer
+        id:
+          type: string
+      required:
+      - file
+      type: object
+    IgvmConfig:
       example:
         pci_segment: 5
         file: file
