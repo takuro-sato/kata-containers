@@ -666,6 +666,8 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 
 	}
 
+	clh.Logger().WithField("DALLAS vmconfig ***** : ", clh.vmconfig).Info("CreateVM")
+
 	return nil
 }
 
@@ -1301,7 +1303,7 @@ func (clh *cloudHypervisor) launchClh() (int, error) {
 	}
 
 	clh.Logger().WithField("path", clhPath).Info()
-	clh.Logger().WithField("args", strings.Join(args, " ")).Info()
+	clh.Logger().WithField("DALLAS ARGS **** args", strings.Join(args, " ")).Info()
 
 	cmdHypervisor := exec.Command(clhPath, args...)
 	if clh.config.Debug {
@@ -1315,6 +1317,7 @@ func (clh *cloudHypervisor) launchClh() (int, error) {
 
 	cmdHypervisor.Stderr = cmdHypervisor.Stdout
 
+	clh.Logger().WithField("DALLAS cmdHypervisor ****** args", cmdHypervisor).Info()
 	err = utils.StartCmd(cmdHypervisor)
 	if err != nil {
 		return -1, err

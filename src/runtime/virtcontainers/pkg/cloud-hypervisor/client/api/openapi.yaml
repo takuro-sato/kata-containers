@@ -674,6 +674,7 @@ components:
             cmdline: cmdline
             kernel: kernel
             initramfs: initramfs
+            igvm: igvm
           serial:
             mode: "false"
             file: file
@@ -803,12 +804,15 @@ components:
         cmdline: cmdline
         kernel: kernel
         initramfs: initramfs
+        igvm: igvm
       properties:
         kernel:
           type: string
         cmdline:
           type: string
         initramfs:
+          type: string
+        igvm:
           type: string
       type: object
     VmConfig:
@@ -1039,6 +1043,7 @@ components:
           cmdline: cmdline
           kernel: kernel
           initramfs: initramfs
+          igvm: igvm
         serial:
           mode: "false"
           file: file
