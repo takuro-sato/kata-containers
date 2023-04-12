@@ -25,7 +25,6 @@ type VmConfig struct {
 	Balloon  *BalloonConfig  `json:"balloon,omitempty"`
 	Fs       *[]FsConfig     `json:"fs,omitempty"`
 	Pmem     *[]PmemConfig   `json:"pmem,omitempty"`
-	Igvm     *[]IgvmConfig   `json:"igvm,omitempty"`
 	Serial   *ConsoleConfig  `json:"serial,omitempty"`
 	Console  *ConsoleConfig  `json:"console,omitempty"`
 	Devices  *[]DeviceConfig `json:"devices,omitempty"`
@@ -344,41 +343,6 @@ func (o *VmConfig) HasPmem() bool {
 func (o *VmConfig) SetPmem(v []PmemConfig) {
 	o.Pmem = &v
 }
-
-////////////////// IGVM //////////////////////////
-// GetIgvm returns the Igvm field value if set, zero value otherwise.
-func (o *VmConfig) GetIgvm() []IgvmConfig {
-	if o == nil || o.Igvm == nil {
-		var ret []IgvmConfig
-		return ret
-	}
-	return *o.Igvm
-}
-
-// GetIgvmOk returns a tuple with the Igvm field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *VmConfig) GetIgvmOk() (*[]IgvmConfig, bool) {
-	if o == nil || o.Igvm == nil {
-		return nil, false
-	}
-	return o.Igvm, true
-}
-
-// HasIgvm returns a boolean if a field has been set.
-func (o *VmConfig) HasIgvm() bool {
-	if o != nil && o.Igvm != nil {
-		return true
-	}
-
-	return false
-}
-
-// SetIgvm gets a reference to the given []IgvmConfig and assigns it to the Igvm field.
-func (o *VmConfig) SetIgvm(v []IgvmConfig) {
-	o.Igvm = &v
-}
-
-//////////////////////////////////////////////////
 
 // GetSerial returns the Serial field value if set, zero value otherwise.
 func (o *VmConfig) GetSerial() ConsoleConfig {
@@ -760,9 +724,6 @@ func (o VmConfig) MarshalJSON() ([]byte, error) {
 	}
 	if o.Pmem != nil {
 		toSerialize["pmem"] = o.Pmem
-	}
-	if o.Igvm != nil {
-		toSerialize["igvm"] = o.Igvm
 	}
 	if o.Serial != nil {
 		toSerialize["serial"] = o.Serial

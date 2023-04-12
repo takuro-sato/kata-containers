@@ -275,13 +275,8 @@ func (h hypervisor) igvm() (string, error) {
 	if p == "" {
 		return "", nil
 	}
-	// kataUtilsLogger.WithFields(
-	// 	logrus.Fields{
-	// 		"igvm file":   p,
-	// 	}).Info("dallas *** IGVM set")
-	kataUtilsLogger.WithField("dallas *** IGVM set", p).Info("dallas igvm")
 
-	// kataUtilsLogger.Info("dallas *** IGVM set")
+	kataUtilsLogger.WithField("dallas *** IGVM set", p).Info("dallas igvm")
 
 	return ResolvePath(p)
 }

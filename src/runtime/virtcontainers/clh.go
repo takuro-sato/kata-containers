@@ -467,12 +467,21 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 	// Create the VM config via the constructor to ensure default values are properly assigned
 	clh.vmconfig = *chclient.NewVmConfig(*chclient.NewPayloadConfig())
 
-	// Make sure the kernel path is valid
-	kernelPath, err := clh.config.KernelAssetPath()
+	// Make sure the igvm path is valid
+	igvmPath, err := clh.config.IgvmAssetPath()
 	if err != nil {
 		return err
 	}
-	clh.vmconfig.Payload.SetKernel(kernelPath)
+	clh.vmconfig.Payload.SetIgvm(igvmPath)
+
+	// Make sure the kernel path is valid if no igvm set
+	if igvmPath == "" {
+		kernelPath, err := clh.config.KernelAssetPath()
+		if err != nil {
+			return err
+		}
+		clh.vmconfig.Payload.SetKernel(kernelPath)
+	}
 
 	if clh.config.ConfidentialGuest {
 		if err := clh.enableProtection(); err != nil {
@@ -486,7 +495,7 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 	clh.vmconfig.Memory.Shared = func(b bool) *bool { return &b }(true)
 	// Enable hugepages if needed
 	clh.vmconfig.Memory.Hugepages = func(b bool) *bool { return &b }(clh.config.HugePages)
-	if !clh.config.ConfidentialGuest {
+	if !clh.config.ConfidentialGuest && igvmPath == "" {
 		hotplugSize := clh.config.DefaultMaxMemorySize
 		// OpenAPI only supports int64 values
 		clh.vmconfig.Memory.HotplugSize = func(i int64) *int64 { return &i }(int64((utils.MemUnit(hotplugSize) * utils.MiB).ToBytes()))
@@ -517,38 +526,9 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 	// Followed by extra kernel parameters defined in the configuration file
 	params = append(params, clh.config.KernelParams...)
 
-	// clh.vmconfig.Payload.SetCmdline(kernelParamsToString(params))
-
-////////////////////////////////////////////////
-///////////////////////////////////////////////////////// dallas
-	// parse path
-	clh.Logger().WithField("dallas 1", "CreateVM").Info("debugging")
-	igvmPath, err := clh.config.IgvmAssetPath()
-	if err != nil {
-		clh.Logger().WithField("dallas 1", "CreateVM FAILED").Info("debugging")
-		return err
-	}
-
-	// enforce actions
-	clh.Logger().WithField("dallas 2", "CreateVM").Info("debugging")
-	if igvmPath != "" {
-		clh.Logger().WithField("igvm path: ", igvmPath).Info("dallas 2 CreateVM")
-		igvm := chclient.NewIgvmConfig(igvmPath)
-		*igvm.DiscardWrites = true
-
-		if clh.vmconfig.Igvm != nil {
-			*clh.vmconfig.Igvm = append(*clh.vmconfig.Igvm, *igvm)
-		} else {
-			clh.vmconfig.Igvm = &[]chclient.IgvmConfig{*igvm}
-		}
-		
-	} else {
-		clh.Logger().WithField("igvm path is NULL: ", kernelParamsToString(params)).Info("dallas 2 CreateVM showing kernel params")
+	if igvmPath == "" {
 		clh.vmconfig.Payload.SetCmdline(kernelParamsToString(params))
 	}
-/////////////////////////////////////////////////////////
-///////////////////////////////////////////////
-
 
 	// set random device generator to hypervisor
 	clh.vmconfig.Rng = chclient.NewRngConfig(clh.config.EntropySource)
@@ -666,7 +646,7 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 
 	}
 
-	clh.Logger().WithField("DALLAS vmconfig ***** : ", clh.vmconfig).Info("CreateVM")
+	clh.Logger().WithField("dallas vmconfig ***** : ", clh.vmconfig).Info("CreateVM")
 
 	return nil
 }
@@ -1265,7 +1245,7 @@ func (clh *cloudHypervisor) clhPath() (string, error) {
 
 func (clh *cloudHypervisor) launchClh() (int, error) {
 
-	clh.Logger().Info("DALLAS launchClh()")
+	clh.Logger().Info("dallas launchClh()")
 	clhPath, err := clh.clhPath()
 	if err != nil {
 		return -1, err
@@ -1303,7 +1283,7 @@ func (clh *cloudHypervisor) launchClh() (int, error) {
 	}
 
 	clh.Logger().WithField("path", clhPath).Info()
-	clh.Logger().WithField("DALLAS ARGS **** args", strings.Join(args, " ")).Info()
+	clh.Logger().WithField("dallas args **** ", strings.Join(args, " ")).Info()
 
 	cmdHypervisor := exec.Command(clhPath, args...)
 	if clh.config.Debug {
@@ -1317,7 +1297,7 @@ func (clh *cloudHypervisor) launchClh() (int, error) {
 
 	cmdHypervisor.Stderr = cmdHypervisor.Stdout
 
-	clh.Logger().WithField("DALLAS cmdHypervisor ****** args", cmdHypervisor).Info()
+	clh.Logger().WithField("dallas cmdHypervisor ****** args", cmdHypervisor).Info()
 	err = utils.StartCmd(cmdHypervisor)
 	if err != nil {
 		return -1, err
@@ -1422,12 +1402,12 @@ func (clh *cloudHypervisor) bootVM(ctx context.Context) error {
 
 	cl := clh.client()
 
-	if !clh.config.Debug {
+	if clh.config.Debug {
 		bodyBuf, err := json.Marshal(clh.vmconfig)
 		if err != nil {
 			return err
 		}
-		clh.Logger().WithField("body", string(bodyBuf)).Info("Dallas ****** VM config")
+		clh.Logger().WithField("body", string(bodyBuf)).Debug("VM config")
 	}
 
 	_, err := cl.CreateVM(ctx, clh.vmconfig)
