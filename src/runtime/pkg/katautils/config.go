@@ -78,6 +78,7 @@ type factory struct {
 }
 
 type hypervisor struct {
+	Igvm                           string   `toml:"igvm"`
 	Path                           string   `toml:"path"`
 	JailerPath                     string   `toml:"jailer_path"`
 	Kernel                         string   `toml:"kernel"`
@@ -270,6 +271,19 @@ func (h hypervisor) image() (string, error) {
 	if p == "" {
 		return "", nil
 	}
+	kataUtilsLogger.WithField("normal image set", p).Info("image")
+
+	return ResolvePath(p)
+}
+
+func (h hypervisor) igvm() (string, error) {
+	p := h.Igvm
+
+	if p == "" {
+		return "", nil
+	}
+
+	kataUtilsLogger.WithField("IGVM set", p).Info("igvm")
 
 	return ResolvePath(p)
 }
@@ -987,14 +1001,20 @@ func newClhHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		return vc.HypervisorConfig{}, err
 	}
 
-	if image == "" && initrd == "" {
-		return vc.HypervisorConfig{},
-			errors.New("image or initrd must be defined in the configuration file")
+	igvm, err := h.igvm()
+	if err != nil {
+		return vc.HypervisorConfig{}, err
 	}
-
+	kataUtilsLogger.Info("IGVM() parsed")
+		
 	rootfsType, err := h.rootfsType()
 	if err != nil {
 		return vc.HypervisorConfig{}, err
+	}
+
+	if image == "" && initrd == "" {
+		return vc.HypervisorConfig{},
+			errors.New("image or initrd must be defined in the configuration file")
 	}
 
 	firmware, err := h.firmware()
@@ -1031,6 +1051,7 @@ func newClhHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		KernelPath:                     kernel,
 		InitrdPath:                     initrd,
 		ImagePath:                      image,
+		IgvmPath:                       igvm,
 		RootfsType:                     rootfsType,
 		FirmwarePath:                   firmware,
 		MachineAccelerators:            machineAccelerators,
@@ -1163,6 +1184,9 @@ func updateRuntimeConfigHypervisor(configPath string, tomlConf tomlConfig, confi
 		case clhHypervisorTableType:
 			config.HypervisorType = vc.ClhHypervisor
 			hConfig, err = newClhHypervisorConfig(hypervisor)
+			kataUtilsLogger.Info("IGVM -> CLH config set")
+			
+
 		case dragonballHypervisorTableType:
 			config.HypervisorType = vc.DragonballHypervisor
 			hConfig, err = newDragonballHypervisorConfig(hypervisor)
