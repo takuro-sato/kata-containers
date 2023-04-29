@@ -56,6 +56,7 @@ macro_rules! is_allowed_pull_image {
 }
 
 
+/*
 pub struct ImageService {
     sandbox: Arc<Mutex<Sandbox>>,
     attestation_agent_started: AtomicBool,
@@ -259,7 +260,9 @@ impl protocols::image_ttrpc_async::Image for ImageService {
         }
     }
 }
+*/
 
+/*
 #[cfg(test)]
 mod tests {
     use super::ImageService;
@@ -352,3 +355,4 @@ mod tests {
         }
     }
 }
+*/

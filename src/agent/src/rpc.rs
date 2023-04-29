@@ -37,7 +37,7 @@ use protocols::health::{
 use protocols::types::Interface;
 use protocols::{
     agent_ttrpc_async as agent_ttrpc, health_ttrpc_async as health_ttrpc,
-    image_ttrpc_async as image_ttrpc,
+    //image_ttrpc_async as image_ttrpc,
 };
 use rustjail::cgroups::notifier;
 use rustjail::container::{BaseContainer, Container, LinuxContainer};
@@ -53,7 +53,7 @@ use rustjail::process::ProcessOperations;
 use crate::device::{
     add_devices, get_virtio_blk_pci_device_name, update_device_cgroup, update_env_pci,
 };
-use crate::image_rpc;
+//use crate::image_rpc;
 use crate::linux_abi::*;
 use crate::metrics::get_metrics;
 use crate::mount::{add_storages, baremount, STORAGE_HANDLER_LIST};
@@ -209,6 +209,7 @@ pub struct AgentService {
 //
 //     ^[a-zA-Z0-9][a-zA-Z0-9_.-]+$
 //
+/*
 pub fn verify_cid(id: &str) -> Result<()> {
     let mut chars = id.chars();
 
@@ -221,6 +222,7 @@ pub fn verify_cid(id: &str) -> Result<()> {
         false => Err(anyhow!("invalid container ID: {:?}", id)),
     }
 }
+*/
 
 // Partially merge an OCI process specification into another one.
 fn merge_oci_process(target: &mut oci::Process, source: &oci::Process) {
@@ -1901,20 +1903,22 @@ pub fn start(s: Arc<Mutex<Sandbox>>, server_address: &str) -> Result<TtrpcServer
     let health_service = Box::new(HealthService {}) as Box<dyn health_ttrpc::Health + Send + Sync>;
     let health_worker = Arc::new(health_service);
 
+    /*
     let image_service =
         Box::new(image_rpc::ImageService::new(s)) as Box<dyn image_ttrpc::Image + Send + Sync>;
+        */
 
     let aservice = agent_ttrpc::create_agent_service(agent_worker);
 
     let hservice = health_ttrpc::create_health(health_worker);
 
-    let iservice = image_ttrpc::create_image(Arc::new(image_service));
+    //let iservice = image_ttrpc::create_image(Arc::new(image_service));
 
     let server = TtrpcServer::new()
         .bind(server_address)?
         .register_service(aservice)
-        .register_service(hservice)
-        .register_service(iservice);
+        .register_service(hservice);
+        //.register_service(iservice);
 
     info!(sl!(), "ttRPC server started"; "address" => server_address);
 

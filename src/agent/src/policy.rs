@@ -234,6 +234,7 @@ impl AgentPolicy {
         allow
     }
 
+    /*
     // Post query with PullImageRequest input data to OPA.
     pub async fn is_allowed_pull_image_endpoint(
         &mut self,
@@ -246,6 +247,7 @@ impl AgentPolicy {
 
         self.post_query(ep, &post_input).await
     }
+    */
 
     fn get_container_oci_spec(
         req: &protocols::agent::CreateContainerRequest
