@@ -541,7 +541,6 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 	// set random device generator to hypervisor
 	clh.vmconfig.Rng = chclient.NewRngConfig(clh.config.EntropySource)
 
-
 	// set the initial root/boot disk of hypervisor
 	imagePath, err := clh.config.ImageAssetPath()
 	if err != nil {
@@ -653,8 +652,6 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 		}
 
 	}
-
-	clh.Logger().WithField("dallas vmconfig ***** : ", clh.vmconfig).Info("CreateVM")
 
 	return nil
 }
@@ -1325,7 +1322,6 @@ func (clh *cloudHypervisor) clhPath() (string, error) {
 
 func (clh *cloudHypervisor) launchClh() (int, error) {
 
-	clh.Logger().Info("dallas launchClh()")
 	clhPath, err := clh.clhPath()
 	if err != nil {
 		return -1, err
@@ -1363,7 +1359,6 @@ func (clh *cloudHypervisor) launchClh() (int, error) {
 	}
 
 	clh.Logger().WithField("path", clhPath).Info()
-	clh.Logger().WithField("dallas args **** ", strings.Join(args, " ")).Info()
 
 	cmdHypervisor := exec.Command(clhPath, args...)
 	if clh.config.Debug {
@@ -1377,7 +1372,6 @@ func (clh *cloudHypervisor) launchClh() (int, error) {
 
 	cmdHypervisor.Stderr = cmdHypervisor.Stdout
 
-	clh.Logger().WithField("dallas cmdHypervisor ****** args", cmdHypervisor).Info()
 	err = utils.StartCmd(cmdHypervisor)
 	if err != nil {
 		return -1, err
@@ -1493,15 +1487,10 @@ func (clh *cloudHypervisor) bootVM(ctx context.Context) error {
 		}
 		clh.Logger().WithField("body", string(bodyBuf)).Debug("VM config")
 	}
-
 	_, err := cl.CreateVM(ctx, clh.vmconfig)
 	if err != nil {
 		return openAPIClientError(err)
 	}
-
-
-	bodyBuf, err := json.Marshal(clh.vmconfig)
-	clh.Logger().WithField("body", string(bodyBuf)).Info("Dallas ****** VM config")
 
 	info, err := clh.vmInfo()
 	if err != nil {
@@ -1509,7 +1498,6 @@ func (clh *cloudHypervisor) bootVM(ctx context.Context) error {
 	}
 
 	clh.Logger().Debugf("VM state after create: %#v", info)
-	clh.Logger().WithField("VM state after create: %#v", info).Info("Dallas ****** VM state after create:")
 
 	if info.State != clhStateCreated {
 		return fmt.Errorf("VM state is not 'Created' after 'CreateVM'")

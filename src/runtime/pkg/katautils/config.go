@@ -271,7 +271,6 @@ func (h hypervisor) image() (string, error) {
 	if p == "" {
 		return "", nil
 	}
-	kataUtilsLogger.WithField("normal image set", p).Info("image")
 
 	return ResolvePath(p)
 }
@@ -283,7 +282,6 @@ func (h hypervisor) igvm() (string, error) {
 		return "", nil
 	}
 
-	kataUtilsLogger.WithField("IGVM set", p).Info("igvm")
 
 	return ResolvePath(p)
 }
@@ -1005,8 +1003,7 @@ func newClhHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 	if err != nil {
 		return vc.HypervisorConfig{}, err
 	}
-	kataUtilsLogger.Info("IGVM() parsed")
-		
+
 	rootfsType, err := h.rootfsType()
 	if err != nil {
 		return vc.HypervisorConfig{}, err
@@ -1184,8 +1181,7 @@ func updateRuntimeConfigHypervisor(configPath string, tomlConf tomlConfig, confi
 		case clhHypervisorTableType:
 			config.HypervisorType = vc.ClhHypervisor
 			hConfig, err = newClhHypervisorConfig(hypervisor)
-			kataUtilsLogger.Info("IGVM -> CLH config set")
-			
+
 
 		case dragonballHypervisorTableType:
 			config.HypervisorType = vc.DragonballHypervisor
