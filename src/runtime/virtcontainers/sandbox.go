@@ -1294,14 +1294,21 @@ func (s *Sandbox) startVM(ctx context.Context, prestartHookFunc func(context.Con
 
 	s.Logger().Info("Starting VM")
 
-	if s.config.HypervisorConfig.Debug {
-		// create console watcher
-		consoleWatcher, err := newConsoleWatcher(ctx, s)
-		if err != nil {
-			return err
-		}
-		s.cw = consoleWatcher
-	}
+//	if s.config.HypervisorConfig.Debug {
+//		// create console watcher
+//		consoleWatcher, err := newConsoleWatcher(ctx, s)
+//		if err != nil {
+//			return err
+//		}
+//		s.cw = consoleWatcher
+//	}
+//hack
+        // create console watcher
+        consoleWatcher, err := newConsoleWatcher(ctx, s)
+        if err != nil {
+                return err
+        }
+        s.cw = consoleWatcher
 
 	defer func() {
 		if err != nil {

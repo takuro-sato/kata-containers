@@ -519,17 +519,25 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 	params = append(params, clhKernelParams...)
 
 	// Followed by extra debug parameters if debug enabled in configuration file
-	if clh.config.Debug {
-		if clh.config.ConfidentialGuest {
-			params = append(params, clhDebugConfidentialGuestKernelParams...)
-		} else {
-			params = append(params, clhDebugKernelParams...)
-		}
-		params = append(params, clhDebugKernelParamsCommon...)
+//	if clh.config.Debug {
+//		if clh.config.ConfidentialGuest {
+//			params = append(params, clhDebugConfidentialGuestKernelParams...)
+//		} else {
+//			params = append(params, clhDebugKernelParams...)
+//		}
+//		params = append(params, clhDebugKernelParamsCommon...)
+//	} else {
+//		// start the guest kernel with 'quiet' in non-debug mode
+//		params = append(params, Param{"quiet", ""})
+//	}
+//hack
+
+	if clh.config.ConfidentialGuest {
+		params = append(params, clhDebugConfidentialGuestKernelParams...)
 	} else {
-		// start the guest kernel with 'quiet' in non-debug mode
-		params = append(params, Param{"quiet", ""})
+		params = append(params, clhDebugKernelParams...)
 	}
+	params = append(params, clhDebugKernelParamsCommon...)
 
 	// Followed by extra kernel parameters defined in the configuration file
 	params = append(params, clh.config.KernelParams...)
@@ -584,21 +592,25 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 	if clh.config.ConfidentialGuest {
 		// Use HVC as the guest console only in debug mode, only
 		// for Confidential Guests
-		if clh.config.Debug {
-			clh.vmconfig.Console = chclient.NewConsoleConfig(cctTTY)
-		} else {
-			clh.vmconfig.Console = chclient.NewConsoleConfig(cctOFF)
-		}
+//hack
+		clh.vmconfig.Console = chclient.NewConsoleConfig(cctTTY)
+//		if clh.config.Debug {
+//			clh.vmconfig.Console = chclient.NewConsoleConfig(cctTTY)
+//		} else {
+//			clh.vmconfig.Console = chclient.NewConsoleConfig(cctOFF)
+//		}
 
 		clh.vmconfig.Serial = chclient.NewConsoleConfig(cctOFF)
 	} else {
 		// Use serial port as the guest console only in debug mode,
 		// so that we can gather early OS booting log
-		if clh.config.Debug {
-			clh.vmconfig.Serial = chclient.NewConsoleConfig(cctTTY)
-		} else {
-			clh.vmconfig.Serial = chclient.NewConsoleConfig(cctOFF)
-		}
+//hack
+		clh.vmconfig.Serial = chclient.NewConsoleConfig(cctTTY)
+//		if clh.config.Debug {
+//			clh.vmconfig.Serial = chclient.NewConsoleConfig(cctTTY)
+//		} else {
+//			clh.vmconfig.Serial = chclient.NewConsoleConfig(cctOFF)
+//		}
 
 		clh.vmconfig.Console = chclient.NewConsoleConfig(cctOFF)
 	}
@@ -1328,7 +1340,8 @@ func (clh *cloudHypervisor) launchClh() (int, error) {
 	}
 
 	args := []string{cscAPIsocket, clh.state.apiSocket}
-	if clh.config.Debug {
+//hack
+//	if clh.config.Debug {
 		// Cloud hypervisor log levels
 		// 'v' occurrences increase the level
 		//0 =>  Error
@@ -1350,7 +1363,7 @@ func (clh *cloudHypervisor) launchClh() (int, error) {
 		//
 		//   https://github.com/kata-containers/kata-containers/pull/2751
 		args = append(args, "-v")
-	}
+//	}
 
 	// Enable the `seccomp` feature from Cloud Hypervisor by default
 	// Disable it only when requested by users for debugging purposes
@@ -1361,14 +1374,15 @@ func (clh *cloudHypervisor) launchClh() (int, error) {
 	clh.Logger().WithField("path", clhPath).Info()
 
 	cmdHypervisor := exec.Command(clhPath, args...)
-	if clh.config.Debug {
+//hack
+//	if clh.config.Debug {
 		cmdHypervisor.Env = os.Environ()
 		cmdHypervisor.Env = append(cmdHypervisor.Env, "RUST_BACKTRACE=full")
 		if clh.console != nil {
 			cmdHypervisor.Stderr = clh.console
 			cmdHypervisor.Stdout = clh.console
 		}
-	}
+//	}
 
 	cmdHypervisor.Stderr = cmdHypervisor.Stdout
 
@@ -1480,13 +1494,21 @@ func (clh *cloudHypervisor) bootVM(ctx context.Context) error {
 
 	cl := clh.client()
 
+//hack
 	if clh.config.Debug {
 		bodyBuf, err := json.Marshal(clh.vmconfig)
 		if err != nil {
 			return err
 		}
 		clh.Logger().WithField("body", string(bodyBuf)).Debug("VM config")
+	} else {
+		bodyBuf, err := json.Marshal(clh.vmconfig)
+		if err != nil {
+			return err
+		}
+		clh.Logger().WithField("body", string(bodyBuf)).Debug("VM config")
 	}
+
 	_, err := cl.CreateVM(ctx, clh.vmconfig)
 	if err != nil {
 		return openAPIClientError(err)

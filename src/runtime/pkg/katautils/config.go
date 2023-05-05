@@ -1221,11 +1221,15 @@ func updateRuntimeConfigAgent(configPath string, tomlConf tomlConfig, config *oc
 func SetKernelParams(runtimeConfig *oci.RuntimeConfig) error {
 	defaultKernelParams := GetKernelParamsFunc(needSystemd(runtimeConfig.HypervisorConfig), runtimeConfig.Trace)
 
-	if runtimeConfig.HypervisorConfig.Debug {
-		strParams := vc.SerializeParams(defaultKernelParams, "=")
-		formatted := strings.Join(strParams, " ")
-		kataUtilsLogger.WithField("default-kernel-parameters", formatted).Debug()
-	}
+//	if runtimeConfig.HypervisorConfig.Debug {
+//		strParams := vc.SerializeParams(defaultKernelParams, "=")
+//		formatted := strings.Join(strParams, " ")
+//		kataUtilsLogger.WithField("default-kernel-parameters", formatted).Debug()
+//	}
+// hack
+	strParams := vc.SerializeParams(defaultKernelParams, "=")
+	formatted := strings.Join(strParams, " ")
+	kataUtilsLogger.WithField("default-kernel-parameters", formatted).Debug()
 
 	// retrieve the parameters specified in the config file
 	userKernelParams := runtimeConfig.HypervisorConfig.KernelParams
