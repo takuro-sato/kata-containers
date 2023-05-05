@@ -182,7 +182,7 @@ block_device_driver = "virtio-blk"
 # to enable debug output where available.
 #
 # Default false
-#enable_debug = true
+enable_debug = true
 
 # Path to OCI hook binaries in the *guest rootfs*.
 # This does not affect host-side hooks which must instead be added to
