@@ -67,6 +67,7 @@ const (
 	vfioPath = "/dev/vfio/"
 
 	NydusRootFSType = "fuse.nydus-overlayfs"
+	TarRootFSType   = "tar-overlay"
 
 	// enable debug console
 	kernelParamDebugConsole           = "agent.debug_console"
@@ -152,6 +153,7 @@ const (
 	grpcResizeVolumeRequest      = "grpc.ResizeVolumeRequest"
 	grpcGetIPTablesRequest       = "grpc.GetIPTablesRequest"
 	grpcSetIPTablesRequest       = "grpc.SetIPTablesRequest"
+	grpcSetPolicyRequest         = "grpc.SetPolicyRequest"
 )
 
 // newKataAgent returns an agent from an agent type.
@@ -277,6 +279,7 @@ type KataAgentConfig struct {
 	Debug              bool
 	Trace              bool
 	EnableDebugConsole bool
+	Policy             string
 }
 
 // KataAgentState is the structure describing the data stored from this
@@ -736,6 +739,12 @@ func (k *kataAgent) startSandbox(ctx context.Context, sandbox *Sandbox) error {
 		// Check grpc server is serving
 		if err = k.check(ctx); err != nil {
 			return err
+		}
+
+		if len(sandbox.config.AgentConfig.Policy) > 0 {
+			if err := sandbox.agent.setPolicy(ctx, sandbox.config.AgentConfig.Policy); err != nil {
+				return err
+			}
 		}
 
 		// Setup network interfaces and routes
@@ -1207,16 +1216,19 @@ func (k *kataAgent) createContainer(ctx context.Context, sandbox *Sandbox, c *Co
 	// Share the container rootfs -- if its block based, we'll receive a non-nil storage object representing
 	// the block device for the rootfs, which us utilized for mounting in the guest. This'll be handled
 	// already for non-block based rootfs
-	if sharedRootfs, err = sandbox.fsShare.ShareRootFilesystem(ctx, c); err != nil {
+	shares, err := sandbox.fsShare.ShareRootFilesystem(ctx, c)
+	if err != nil {
 		return nil, err
 	}
 
-	if sharedRootfs.storage != nil {
-		// Add rootfs to the list of container storage.
-		// We only need to do this for block based rootfs, as we
-		// want the agent to mount it into the right location
-		// (kataGuestSharedDir/ctrID/
-		ctrStorages = append(ctrStorages, sharedRootfs.storage)
+	for _, sharedRootfs = range shares {
+		if sharedRootfs.storage != nil {
+			// Add rootfs to the list of container storage.
+			// We only need to do this for block based rootfs, as we
+			// want the agent to mount it into the right location
+			// (kataGuestSharedDir/ctrID/
+			ctrStorages = append(ctrStorages, sharedRootfs.storage)
+		}
 	}
 
 	ociSpec := c.GetPatchedOCISpec()
@@ -2038,6 +2050,9 @@ func (k *kataAgent) installReqFunc(c *kataclient.AgentClient) {
 	k.reqHandlers[grpcSetIPTablesRequest] = func(ctx context.Context, req interface{}) (interface{}, error) {
 		return k.client.AgentServiceClient.SetIPTables(ctx, req.(*grpc.SetIPTablesRequest))
 	}
+	k.reqHandlers[grpcSetPolicyRequest] = func(ctx context.Context, req interface{}) (interface{}, error) {
+		return k.client.AgentServiceClient.SetPolicy(ctx, req.(*grpc.SetPolicyRequest))
+	}
 }
 
 func (k *kataAgent) getReqContext(ctx context.Context, reqName string) (newCtx context.Context, cancel context.CancelFunc) {
@@ -2332,4 +2347,9 @@ func (k *kataAgent) PullImage(ctx context.Context, req *image.PullImageReq) (*im
 	return &image.PullImageResp{
 		ImageRef: response.ImageRef,
 	}, nil
+}
+
+func (k *kataAgent) setPolicy(ctx context.Context, policy string) error {
+	_, err := k.sendReq(ctx, &grpc.SetPolicyRequest{Policy: policy})
+	return err
 }

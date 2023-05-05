@@ -266,7 +266,7 @@ copy_kernel_modules()
 	mkdir -p "${dest_dir}"
 	cp -a "${KERNEL_MODULES_DIR}" "${dest_dir}/"
 	local KERNEL_VER=$(ls ${dest_dir})
-	depmod -b "${rootfs_dir}" ${KERNEL_VER}
+	depmod -a -b "${rootfs_dir}" ${KERNEL_VER}
 	OK "Kernel modules copied"
 }
 
@@ -640,6 +640,17 @@ EOF
 		# Setup systemd service for kata-agent
 		mkdir -p "${ROOTFS_DIR}/etc/systemd/system/basic.target.wants"
 		ln -sf "/usr/lib/systemd/system/kata-containers.target" "${ROOTFS_DIR}/etc/systemd/system/basic.target.wants/kata-containers.target"
+
+		# TODO: clean-up OPA installation
+		cp /usr/bin/opa "${ROOTFS_DIR}/usr/bin"
+		chmod 755 "${ROOTFS_DIR}/usr/bin/opa"
+		samples_dir="${script_dir}/../../../src/agent/samples/policy/all-allowed"
+
+		cp "${samples_dir}/all-allowed.rego" "${ROOTFS_DIR}/coco_policy"
+		chmod 644 "${ROOTFS_DIR}/coco_policy"
+
+		cp "${samples_dir}/all-allowed-data.json" "${ROOTFS_DIR}/coco_policy_data"
+		chmod 644 "${ROOTFS_DIR}/coco_policy_data"
 	fi
 
 	info "Check init is installed"
@@ -703,6 +714,9 @@ EOF
 		info "Install init_trusted_storage script for CC"
 		install -o root -g root -m 0500 "${script_dir}/init_trusted_storage.sh" "${ROOTFS_DIR}/usr/bin/kata-init-trusted-storage"
 	fi
+
+	info "Install mount script for tar devices"
+	install -o root -g root -m 0500 "${script_dir}/../../../src/agent/mount_tar.sh" "${ROOTFS_DIR}/usr/bin/mount_tar.sh"
 
 	info "Creating summary file"
 	create_summary_file "${ROOTFS_DIR}"
