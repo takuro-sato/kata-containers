@@ -249,8 +249,11 @@ func (h hypervisor) kernel() (string, error) {
 	p := h.Kernel
 
 	if p == "" {
-		p = defaultKernelPath
+		return "", nil
 	}
+	// if p == "" {
+	// 	p = defaultKernelPath
+	// }
 
 	return ResolvePath(p)
 }
@@ -1009,9 +1012,9 @@ func newClhHypervisorConfig(h hypervisor) (vc.HypervisorConfig, error) {
 		return vc.HypervisorConfig{}, err
 	}
 
-	if image == "" && initrd == "" {
+	if image == "" && initrd == "" && igvm == "" {
 		return vc.HypervisorConfig{},
-			errors.New("image or initrd must be defined in the configuration file")
+			errors.New("image, initrd, or igvm must be defined in the configuration file")
 	}
 
 	firmware, err := h.firmware()

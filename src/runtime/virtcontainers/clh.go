@@ -580,14 +580,24 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 				clh.vmconfig.Pmem = &[]chclient.PmemConfig{*pmem}
 			}
 		}
-	} else {
-		initrdPath, err := clh.config.InitrdAssetPath()
-		if err != nil {
-			return err
-		}
+	} 
+	
+	initrdPath, err := clh.config.InitrdAssetPath()
+	if err != nil {
+		return err
+	}
 
+	if initrdPath != "" {
 		clh.vmconfig.Payload.SetInitramfs(initrdPath)
 	}
+	// } else {
+	// 	initrdPath, err := clh.config.InitrdAssetPath()
+	// 	if err != nil {
+	// 		return err
+	// 	}
+
+	// 	clh.vmconfig.Payload.SetInitramfs(initrdPath)
+	// }
 
 	if clh.config.ConfidentialGuest {
 		// Use HVC as the guest console only in debug mode, only
@@ -600,7 +610,7 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 //			clh.vmconfig.Console = chclient.NewConsoleConfig(cctOFF)
 //		}
 
-		clh.vmconfig.Serial = chclient.NewConsoleConfig(cctOFF)
+		clh.vmconfig.Serial = chclient.NewConsoleConfig(cctOFF) //dallas come back to this
 	} else {
 		// Use serial port as the guest console only in debug mode,
 		// so that we can gather early OS booting log
