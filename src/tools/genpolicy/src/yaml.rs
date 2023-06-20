@@ -53,14 +53,7 @@ pub trait K8sResource {
     fn get_host_name(&self) -> String;
     fn get_sandbox_name(&self) -> Option<String>;
     fn get_namespace(&self) -> String;
-
-    fn get_container_mounts_and_storages(
-        &self,
-        policy_mounts: &mut Vec<oci::Mount>,
-        storages: &mut Vec<policy::SerializedStorage>,
-        container: &pod::Container,
-        agent_policy: &policy::AgentPolicy,
-    );
+    fn get_pod_spec(&self) -> Option<&pod::PodSpec>;
 
     fn get_containers(&self) -> (&Vec<registry::Container>, &Vec<pod::Container>);
 }
@@ -231,7 +224,7 @@ pub fn get_container_mounts_and_storages(
             policy_mounts,
             storages,
             container,
-            &volume,
+            volume,
         );
     }
 }

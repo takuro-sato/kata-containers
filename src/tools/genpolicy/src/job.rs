@@ -76,22 +76,8 @@ impl yaml::K8sResource for Job {
         self.metadata.get_namespace()
     }
 
-    fn get_container_mounts_and_storages(
-        &self,
-        policy_mounts: &mut Vec<oci::Mount>,
-        storages: &mut Vec<policy::SerializedStorage>,
-        container: &pod::Container,
-        agent_policy: &policy::AgentPolicy,
-    ) {
-        if let Some(volumes) = &self.spec.template.spec.volumes {
-            yaml::get_container_mounts_and_storages(
-                policy_mounts,
-                storages,
-                container,
-                agent_policy,
-                volumes,
-            );
-        }
+    fn get_pod_spec(&self) -> Option<&pod::PodSpec> {
+        Some(&self.spec.template.spec)
     }
 
     fn generate_policy(&self, agent_policy: &policy::AgentPolicy) -> String {

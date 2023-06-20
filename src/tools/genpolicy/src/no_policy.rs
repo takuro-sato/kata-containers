@@ -45,14 +45,8 @@ impl yaml::K8sResource for NoPolicyResource {
         panic!("Unsupported");
     }
 
-    fn get_container_mounts_and_storages(
-        &self,
-        _policy_mounts: &mut Vec<oci::Mount>,
-        _storages: &mut Vec<policy::SerializedStorage>,
-        _container: &pod::Container,
-        _agent_policy: &policy::AgentPolicy,
-    ) {
-        panic!("Unsupported");
+    fn get_pod_spec(&self) -> Option<&pod::PodSpec> {
+        None
     }
 
     fn generate_policy(&self, _agent_policy: &policy::AgentPolicy) -> String {

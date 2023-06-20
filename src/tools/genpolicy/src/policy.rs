@@ -304,12 +304,18 @@ impl AgentPolicy {
         let image_layers = registry_container.get_image_layers();
         let mut storages = Default::default();
         get_image_layer_storages(&mut storages, &image_layers, &root);
-        k8s_object.get_container_mounts_and_storages(
-            &mut mounts,
-            &mut storages,
-            yaml_container,
-            self,
-        );
+
+        if let Some(spec) = k8s_object.get_pod_spec() {
+            if let Some(volumes) = &spec.volumes {
+                yaml::get_container_mounts_and_storages(
+                    &mut mounts,
+                    &mut storages,
+                    yaml_container,
+                    self,
+                    volumes,
+                );
+            }
+        }
 
         let mut linux = containerd::get_linux(is_privileged);
         linux.namespaces = kata::get_namespaces();
