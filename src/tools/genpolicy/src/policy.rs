@@ -146,6 +146,12 @@ pub struct PersistentVolumeClaimVolume {
     pub mount_source: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ContainerExecCommands {
+    pub containerName: String,
+    pub execCommands: Vec<String>,
+}
+
 impl AgentPolicy {
     pub async fn from_files(config: &utils::Config) -> Result<AgentPolicy> {
         let mut config_maps = Vec::new();

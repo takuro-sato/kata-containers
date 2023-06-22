@@ -26,6 +26,7 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine as _};
 use core::fmt::Debug;
 use log::debug;
+use log::info;
 use serde::{Deserialize, Serialize};
 use serde_yaml;
 use std::boxed;
@@ -137,11 +138,31 @@ pub fn new_k8s_resource(
             Ok((boxed::Box::new(list), header.kind))
         }
         "Pod" => {
-            let pod: pod::Pod = serde_ignored::deserialize(d, |path| {
+            let mut pod: pod::Pod = serde_ignored::deserialize(d, |path| {
                 handle_unused_field(&path.to_string(), silent_unsupported_fields);
             })
             .unwrap();
             debug!("{:#?}", &pod);
+            let mut container_name_to_allowed_commands: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            if let Some(annotations) = pod.metadata.annotations.clone() {
+                if annotations.contains_key("io.katacontainers.config.agent.policyOption.execCommands") {
+                    let base64_encoded_json_exec_commands = &annotations["io.katacontainers.config.agent.policyOption.execCommands"];
+                    let decoded_bytes = general_purpose::STANDARD.decode(base64_encoded_json_exec_commands).unwrap();
+                    let json_string = String::from_utf8(decoded_bytes).unwrap();
+    
+                    let exec_commands: Vec<policy::ContainerExecCommands> = serde_json::from_str(&json_string).unwrap();
+                    for container in exec_commands {
+                        container_name_to_allowed_commands.insert(container.containerName,container.execCommands);
+                    }
+                }
+            }
+            // let cs = pod.spec.containers.clone();
+            for mut container in &mut pod.spec.containers {
+                if container_name_to_allowed_commands.contains_key(&container.name) {
+                    container.allowedCommands = Some(container_name_to_allowed_commands[&container.name].clone())
+                }
+            }
+            info!("updated pod{:#?}", &pod);
             Ok((boxed::Box::new(pod), header.kind))
         }
         "ReplicationController" => {
