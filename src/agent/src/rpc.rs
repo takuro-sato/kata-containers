@@ -175,7 +175,7 @@ macro_rules! is_allowed_create_container {
             warn!(sl!(), "{} is blocked by policy", $req.descriptor().name());
             return Err(ttrpc_error!(
                 ttrpc::Code::PERMISSION_DENIED,
-                format!("{} is blocked by policy", $req.descriptor().name()),
+                format!("{} is blocked by policy TS_DEBUG", $req.descriptor().name()),
             ));
         }
     }
