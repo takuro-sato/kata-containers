@@ -14,6 +14,7 @@ static EMPTY_JSON_INPUT: &str = "{\"input\":{}}";
 static OPA_V1_URI: &str = "http://localhost:8181/v1";
 static OPA_DATA_PATH: &str = "/data";
 static OPA_POLICIES_PATH: &str = "/policies";
+static OPA_DECISION_LOGS_PATH: &str = "/logs";
 
 static COCO_POLICY_NAME: &str = "/coco_policy";
 
@@ -104,8 +105,11 @@ pub struct AgentPolicy {
     // opa_data_uri: String,
     coco_policy_query_prefix: String,
     coco_policy_id_uri: String,
+    coco_decision_logs_uri: String,
 
     opa_client: Client,
+    pub err_str: String,
+    pub decision_logs_str: String,
 }
 
 impl AgentPolicy {
@@ -121,8 +125,11 @@ impl AgentPolicy {
                 + COCO_POLICY_NAME
                 + "/",
             coco_policy_id_uri: OPA_V1_URI.to_string() + OPA_POLICIES_PATH + COCO_POLICY_NAME,
+            coco_decision_logs_uri: OPA_V1_URI.to_string() + OPA_DECISION_LOGS_PATH,
 
             opa_client: Client::builder().http1_only().build()?,
+            err_str: String::new(),
+            decision_logs_str: String::new(),
         })
     }
 
@@ -302,10 +309,12 @@ impl AgentPolicy {
 
         let http_response = response.text().await.unwrap();
         let opa_response: serde_json::Result<AllowResponse> = serde_json::from_str(&http_response);
+        self.err_str = http_response.clone();
 
         match opa_response {
             Ok(resp) => {
                 if !resp.result {
+                    self.get_decision_logs().await;
                     if self.allow_failures {
                         warn!(
                             sl!(),
@@ -327,6 +336,24 @@ impl AgentPolicy {
                 Ok(false)
             }
         }
+    }
+
+    async fn get_decision_logs(&mut self) {
+
+        let uri = self.coco_decision_logs_uri.clone();
+        let response = self
+            .opa_client
+            .post(uri)
+            .send()
+            .await
+            .map_err(|e| anyhow!(e)).unwrap();
+
+        if response.status() != http::StatusCode::OK {
+            return;
+        }
+
+        let http_response = response.text().await.unwrap();
+        self.decision_logs_str = http_response.clone();
     }
 
     fn convert_storages(
