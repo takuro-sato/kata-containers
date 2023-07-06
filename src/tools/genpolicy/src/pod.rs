@@ -113,6 +113,12 @@ pub struct Container {
     pub livenessProbe: Option<Probe>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tty: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub allowedCommands: Option<Vec<String>>,
 }
 

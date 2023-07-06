@@ -1,4 +1,4 @@
-[{"containerName":"busybox2","execCommands":["dh -h","ps -ef"]}, {"containerName":"busybox3","execCommands":["ls"]}]package coco_policy
+package coco_policy
 
 import future.keywords.in
 import future.keywords.every
@@ -1164,7 +1164,7 @@ policy_data := {
       "oci": {
         "ociVersion": "1.1.0-rc.1",
         "process": {
-          "terminal": false,
+          "terminal": true,
           "user": {
             "uid": 0,
             "gid": 0
@@ -1179,7 +1179,8 @@ policy_data := {
             "HOSTNAME=three-containers",
             "POD_NAME=three-containers",
             "POD_NAMESPACE=default",
-            "POD_IP=$(pod-ip)"
+            "POD_IP=$(pod-ip)",
+            "TERM=xterm"
           ],
           "cwd": "/",
           "capabilities": {
