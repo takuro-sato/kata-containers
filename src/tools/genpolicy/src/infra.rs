@@ -30,10 +30,9 @@ const INFRA_MOUNT_DESTINATIONS: [&'static str; 7] = [
     "/var/run/secrets/kubernetes.io/serviceaccount",
 ];
 
-const PAUSE_CONTAINER_ANNOTATIONS: [(&'static str, &'static str); 7] = [
+const PAUSE_CONTAINER_ANNOTATIONS: [(&'static str, &'static str); 6] = [
     ("io.kubernetes.cri.container-type", "sandbox"),
     ("io.kubernetes.cri.sandbox-id", "^[a-z0-9]{64}$"),
-    ("nerdctl/network-namespace", "^/var/run/netns/cni-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
     ("io.kubernetes.cri.sandbox-log-directory", "^/var/log/pods/$(sandbox-namespace)_$(sandbox-name)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
     ("io.katacontainers.pkg.oci.container_type", "pod_sandbox"),
     ("io.kubernetes.cri.sandbox-namespace", "default"),
@@ -293,13 +292,13 @@ impl InfraPolicy {
         if yaml_volume.emptyDir.is_some() {
             Self::empty_dir_mount_and_storage(&self.volumes, policy_mounts, storages, yaml_mount);
         } else if yaml_volume.persistentVolumeClaim.is_some() || yaml_volume.azureFile.is_some() {
-            self.shared_bind_mount(yaml_mount, policy_mounts, false);
+            self.shared_bind_mount(yaml_mount, policy_mounts, "rprivate", "rw");
         } else if yaml_volume.hostPath.is_some() {
             self.host_path_mount(yaml_mount, yaml_volume, policy_mounts);
         } else if yaml_volume.configMap.is_some() || yaml_volume.secret.is_some() {
             Self::config_map_mount_and_storage(&self.volumes, policy_mounts, storages, yaml_mount);
         } else if yaml_volume.projected.is_some() {
-            Self::verify_projected_volume_mount(yaml_mount, policy_mounts);
+            self.shared_bind_mount(yaml_mount, policy_mounts, "rprivate", "ro");
         } else if yaml_volume.downwardAPI.is_some() {
             self.downward_api_mount(yaml_mount, policy_mounts);
         } else {
@@ -316,23 +315,39 @@ impl InfraPolicy {
         let infra_empty_dir = &infra_volumes.emptyDir;
         debug!("Infra emptyDir: {:?}", infra_empty_dir);
 
-        storages.push(policy::SerializedStorage {
-            driver: infra_empty_dir.driver.clone(),
-            driver_options: Vec::new(),
-            source: infra_empty_dir.source.clone(),
-            fstype: infra_empty_dir.fstype.clone(),
-            options: infra_empty_dir.options.clone(),
-            mount_point: infra_empty_dir.mount_point.clone() + &yaml_mount.name + "$",
-            fs_group: policy::SerializedFsGroup {
-                group_id: 0,
-                group_change_policy: 0,
-            },
-        });
+        if yaml_mount.subPathExpr.is_none() {
+            storages.push(policy::SerializedStorage {
+                driver: infra_empty_dir.driver.clone(),
+                driver_options: Vec::new(),
+                source: infra_empty_dir.source.clone(),
+                fstype: infra_empty_dir.fstype.clone(),
+                options: infra_empty_dir.options.clone(),
+                mount_point: infra_empty_dir.mount_point.clone() + &yaml_mount.name + "$",
+                fs_group: policy::SerializedFsGroup {
+                    group_id: 0,
+                    group_change_policy: 0,
+                },
+            });
+        }
+
+        let source = if yaml_mount.subPathExpr.is_some() {
+            let file_name = Path::new(&yaml_mount.mountPath).file_name().unwrap();
+            let name = OsString::from(file_name).into_string().unwrap();
+            infra_volumes.configMap.mount_source.clone() + &name + "$"
+        } else {
+            infra_empty_dir.mount_source.to_string() + &yaml_mount.name + "$"
+        };
+
+        let r#type = if yaml_mount.subPathExpr.is_some() {
+            "bind".to_string()
+        } else {
+            infra_empty_dir.mount_type.clone()
+        };
 
         policy_mounts.push(oci::Mount {
             destination: yaml_mount.mountPath.to_string(),
-            r#type: infra_empty_dir.mount_type.to_string(),
-            source: infra_empty_dir.mount_source.to_string() + &yaml_mount.name + "$",
+            r#type,
+            source,
             options: vec![
                 "rbind".to_string(),
                 "rprivate".to_string(),
@@ -345,7 +360,8 @@ impl InfraPolicy {
         &self,
         yaml_mount: &pod::VolumeMount,
         policy_mounts: &mut Vec<oci::Mount>,
-        shared: bool,
+        propagation: &str,
+        access: &str,
     ) {
         let mut source = self.shared_files.source_path.clone();
         if let Some(byte_index) = str::rfind(&yaml_mount.mountPath, '/') {
@@ -357,12 +373,7 @@ impl InfraPolicy {
 
         let destination = yaml_mount.mountPath.to_string();
         let r#type = "bind".to_string();
-        let mount_option = if shared {
-            "rshared".to_string()
-        } else {
-            "rprivate".to_string()
-        };
-        let options = vec!["rbind".to_string(), mount_option, "rw".to_string()];
+        let options = vec!["rbind".to_string(), propagation.to_string(), access.to_string()];
 
         if let Some(policy_mount) = policy_mounts
             .iter_mut()
@@ -416,7 +427,12 @@ impl InfraPolicy {
         // What is the reason for this source path difference in the Guest OS?
         if !path.starts_with("/dev/") && !path.starts_with("/sys/") {
             debug!("host_path_mount: calling shared_bind_mount");
-            self.shared_bind_mount(yaml_mount, policy_mounts, biderectional);
+            let propagation = if biderectional {
+                "rshared"
+            } else {
+                "rprivate"
+            };
+            self.shared_bind_mount(yaml_mount, policy_mounts, propagation, "rw");
         } else {
             let dest = yaml_mount.mountPath.to_string();
             let r#type = "bind".to_string();
@@ -485,19 +501,6 @@ impl InfraPolicy {
             source: infra_config_map.mount_point.clone() + &name + "$",
             options: infra_config_map.options.clone(),
         });
-    }
-
-    fn verify_projected_volume_mount(
-        yaml_mount: &pod::VolumeMount,
-        policy_mounts: &mut Vec<oci::Mount>,
-    ) {
-        for policy_mount in policy_mounts {
-            if policy_mount.destination == yaml_mount.mountPath {
-                debug!("verify_projected_volume_mount: found already existing infrastructure mount {}.", &yaml_mount.mountPath);
-                return;
-            }
-        }
-        panic!("Unsupported pod mount {}", &yaml_mount.mountPath);
     }
 
     fn downward_api_mount(

@@ -9,7 +9,6 @@
 use crate::obj_meta;
 use crate::pod;
 use crate::policy;
-use crate::registry;
 use crate::yaml;
 
 use async_trait::async_trait;
@@ -83,17 +82,8 @@ impl yaml::K8sResource for ConfigMap {
         _use_cache: bool,
         doc_mapping: &serde_yaml::Value,
         _silent_unsupported_fields: bool,
-    ) -> anyhow::Result<()> {
+    ) {
         self.doc_mapping = doc_mapping.clone();
-        Ok(())
-    }
-
-    fn get_metadata_name(&self) -> String {
-        panic!("Unsupported");
-    }
-
-    fn get_host_name(&self) -> String {
-        panic!("Unsupported");
     }
 
     fn get_sandbox_name(&self) -> Option<String> {
@@ -122,7 +112,18 @@ impl yaml::K8sResource for ConfigMap {
         serde_yaml::to_string(&self.doc_mapping).unwrap()
     }
 
-    fn get_containers(&self) -> (&Vec<registry::Container>, &Vec<pod::Container>) {
+    fn get_containers(&self) -> &Vec<pod::Container> {
+        panic!("Unsupported");
+    }
+
+    fn get_annotations(&self) -> Option<BTreeMap<String, String>> {
+        if let Some(annotations) = &self.metadata.annotations {
+            return Some(annotations.clone());
+        }
+        None
+    }
+
+    fn use_host_network(&self) -> bool {
         panic!("Unsupported");
     }
 }

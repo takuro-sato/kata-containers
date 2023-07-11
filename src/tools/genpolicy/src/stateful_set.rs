@@ -11,11 +11,11 @@ use crate::persistent_volume_claim;
 use crate::pod;
 use crate::pod_template;
 use crate::policy;
-use crate::registry;
 use crate::yaml;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// See Reference / Kubernetes API / Workload Resources / StatefulSet.
@@ -28,9 +28,6 @@ pub struct StatefulSet {
 
     #[serde(skip)]
     doc_mapping: serde_yaml::Value,
-
-    #[serde(skip)]
-    pub registry_containers: Vec<registry::Container>,
 }
 
 /// See Reference / Kubernetes API / Workload Resources / StatefulSet.
@@ -47,6 +44,9 @@ pub struct StatefulSetSpec {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     volumeClaimTemplates: Option<Vec<persistent_volume_claim::PersistentVolumeClaim>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    podManagementPolicy: Option<String>,
     // TODO: additional fields.
 }
 
@@ -57,24 +57,9 @@ impl yaml::K8sResource for StatefulSet {
         use_cache: bool,
         doc_mapping: &serde_yaml::Value,
         _silent_unsupported_fields: bool,
-    ) -> anyhow::Result<()> {
-        yaml::k8s_resource_init(
-            &mut self.spec.template.spec,
-            &mut self.registry_containers,
-            use_cache,
-        )
-        .await?;
+    ) {
+        yaml::k8s_resource_init(&mut self.spec.template.spec, use_cache).await;
         self.doc_mapping = doc_mapping.clone();
-        Ok(())
-    }
-
-    fn get_metadata_name(&self) -> String {
-        self.metadata.get_name()
-    }
-
-    fn get_host_name(&self) -> String {
-        // Example: "hostname": "no-exist-tdtd7",
-        "^".to_string() + &self.get_metadata_name() + "-[a-z0-9]*$"
     }
 
     fn get_sandbox_name(&self) -> Option<String> {
@@ -129,7 +114,7 @@ impl yaml::K8sResource for StatefulSet {
     }
 
     fn generate_policy(&self, agent_policy: &policy::AgentPolicy) -> String {
-        yaml::generate_policy(self, agent_policy)
+        agent_policy.generate_policy(self)
     }
 
     fn serialize(&mut self, policy: &str) -> String {
@@ -137,11 +122,22 @@ impl yaml::K8sResource for StatefulSet {
         serde_yaml::to_string(&self.doc_mapping).unwrap()
     }
 
-    fn get_containers(&self) -> (&Vec<registry::Container>, &Vec<pod::Container>) {
-        (
-            &self.registry_containers,
-            &self.spec.template.spec.containers,
-        )
+    fn get_containers(&self) -> &Vec<pod::Container> {
+        &self.spec.template.spec.containers
+    }
+
+    fn get_annotations(&self) -> Option<BTreeMap<String, String>> {
+        if let Some(annotations) = &self.spec.template.metadata.annotations {
+            return Some(annotations.clone());
+        }
+        None
+    }
+
+    fn use_host_network(&self) -> bool {
+        if let Some(host_network) = self.spec.template.spec.hostNetwork {
+            return host_network;
+        }
+        false
     }
 }
 

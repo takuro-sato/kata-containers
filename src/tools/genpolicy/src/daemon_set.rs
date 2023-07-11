@@ -10,11 +10,11 @@ use crate::obj_meta;
 use crate::pod;
 use crate::pod_template;
 use crate::policy;
-use crate::registry;
 use crate::yaml;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// See Reference Kubernetes API / Workload Resources / DaemonSet.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,9 +26,6 @@ pub struct DaemonSet {
 
     #[serde(skip)]
     doc_mapping: serde_yaml::Value,
-
-    #[serde(skip)]
-    registry_containers: Vec<registry::Container>,
 }
 
 /// See Reference Kubernetes API / Workload Resources / DaemonSet.
@@ -76,23 +73,9 @@ impl yaml::K8sResource for DaemonSet {
         use_cache: bool,
         doc_mapping: &serde_yaml::Value,
         _silent_unsupported_fields: bool,
-    ) -> anyhow::Result<()> {
-        yaml::k8s_resource_init(
-            &mut self.spec.template.spec,
-            &mut self.registry_containers,
-            use_cache,
-        )
-        .await?;
+    ) {
+        yaml::k8s_resource_init(&mut self.spec.template.spec, use_cache).await;
         self.doc_mapping = doc_mapping.clone();
-        Ok(())
-    }
-
-    fn get_metadata_name(&self) -> String {
-        self.metadata.get_name()
-    }
-
-    fn get_host_name(&self) -> String {
-        "^".to_string() + &self.get_metadata_name() + "-[a-z0-9]{5}$"
     }
 
     fn get_sandbox_name(&self) -> Option<String> {
@@ -122,7 +105,7 @@ impl yaml::K8sResource for DaemonSet {
     }
 
     fn generate_policy(&self, agent_policy: &policy::AgentPolicy) -> String {
-        yaml::generate_policy(self, agent_policy)
+        agent_policy.generate_policy(self)
     }
 
     fn serialize(&mut self, policy: &str) -> String {
@@ -130,10 +113,21 @@ impl yaml::K8sResource for DaemonSet {
         serde_yaml::to_string(&self.doc_mapping).unwrap()
     }
 
-    fn get_containers(&self) -> (&Vec<registry::Container>, &Vec<pod::Container>) {
-        (
-            &self.registry_containers,
-            &self.spec.template.spec.containers,
-        )
+    fn get_containers(&self) -> &Vec<pod::Container> {
+        &self.spec.template.spec.containers
+    }
+
+    fn get_annotations(&self) -> Option<BTreeMap<String, String>> {
+        if let Some(annotations) = &self.spec.template.metadata.annotations {
+            return Some(annotations.clone());
+        }
+        None
+    }
+
+    fn use_host_network(&self) -> bool {
+        if let Some(host_network) = self.spec.template.spec.hostNetwork {
+            return host_network;
+        }
+        false
     }
 }

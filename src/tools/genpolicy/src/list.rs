@@ -8,7 +8,6 @@
 
 use crate::pod;
 use crate::policy;
-use crate::registry;
 use crate::yaml;
 
 use async_trait::async_trait;
@@ -16,6 +15,7 @@ use core::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use std::boxed;
+use std::collections::BTreeMap;
 use std::marker::{Send, Sync};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,26 +42,16 @@ impl yaml::K8sResource for List {
         use_cache: bool,
         _doc_mapping: &serde_yaml::Value,
         silent_unsupported_fields: bool,
-    ) -> anyhow::Result<()> {
+    ) {
         for item in &self.items {
-            let yaml_string = serde_yaml::to_string(&item)?;
+            let yaml_string = serde_yaml::to_string(&item).unwrap();
             let (mut resource, _kind) =
-                yaml::new_k8s_resource(&yaml_string, silent_unsupported_fields)?;
+                yaml::new_k8s_resource(&yaml_string, silent_unsupported_fields).unwrap();
             resource
                 .init(use_cache, item, silent_unsupported_fields)
-                .await?;
+                .await;
             self.resources.push(resource);
         }
-
-        Ok(())
-    }
-
-    fn get_metadata_name(&self) -> String {
-        panic!("Unsupported");
-    }
-
-    fn get_host_name(&self) -> String {
-        panic!("Unsupported");
     }
 
     fn get_sandbox_name(&self) -> Option<String> {
@@ -104,7 +94,15 @@ impl yaml::K8sResource for List {
         serde_yaml::to_string(&self).unwrap()
     }
 
-    fn get_containers(&self) -> (&Vec<registry::Container>, &Vec<pod::Container>) {
+    fn get_containers(&self) -> &Vec<pod::Container> {
+        panic!("Unsupported");
+    }
+
+    fn get_annotations(&self) -> Option<BTreeMap<String, String>> {
+        panic!("Unsupported");
+    }
+
+    fn use_host_network(&self) -> bool {
         panic!("Unsupported");
     }
 }

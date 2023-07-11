@@ -15,7 +15,6 @@ use crate::no_policy;
 use crate::pause_container;
 use crate::pod;
 use crate::policy;
-use crate::registry;
 use crate::replica_set;
 use crate::replication_controller;
 use crate::secret;
@@ -23,7 +22,6 @@ use crate::stateful_set;
 use crate::volume;
 
 use async_trait::async_trait;
-use base64::{engine::general_purpose, Engine as _};
 use core::fmt::Debug;
 use log::debug;
 use log::info;
@@ -46,13 +44,11 @@ pub trait K8sResource {
         use_cache: bool,
         doc_mapping: &serde_yaml::Value,
         silent_unsupported_fields: bool,
-    ) -> anyhow::Result<()>;
+    );
 
     fn generate_policy(&self, agent_policy: &policy::AgentPolicy) -> String;
     fn serialize(&mut self, policy: &str) -> String;
 
-    fn get_metadata_name(&self) -> String;
-    fn get_host_name(&self) -> String;
     fn get_sandbox_name(&self) -> Option<String>;
     fn get_namespace(&self) -> String;
 
@@ -64,7 +60,9 @@ pub trait K8sResource {
         agent_policy: &policy::AgentPolicy,
     );
 
-    fn get_containers(&self) -> (&Vec<registry::Container>, &Vec<pod::Container>);
+    fn get_containers(&self) -> &Vec<pod::Container>;
+    fn get_annotations(&self) -> Option<BTreeMap<String, String>>;
+    fn use_host_network(&self) -> bool;
 }
 
 /// See Reference / Kubernetes API / Common Definitions / LabelSelector.
@@ -204,6 +202,7 @@ pub fn new_k8s_resource(
         | "Namespace"
         | "PersistentVolume"
         | "PersistentVolumeClaim"
+        | "PriorityClass"
         | "ResourceQuota"
         | "RoleBinding"
         | "Service"
@@ -232,21 +231,20 @@ pub fn get_yaml_header(yaml: &str) -> anyhow::Result<YamlHeader> {
     return Ok(serde_yaml::from_str(yaml)?);
 }
 
-pub async fn k8s_resource_init(
-    spec: &mut pod::PodSpec,
-    registry_containers: &mut Vec<registry::Container>,
-    use_cache: bool,
-) -> anyhow::Result<()> {
-    pause_container::add_pause_container(&mut spec.containers);
+pub async fn k8s_resource_init(spec: &mut pod::PodSpec, use_cache: bool) {
+    for container in &mut spec.containers {
+        container.init(use_cache).await;
+    }
+
+    pause_container::add_pause_container(&mut spec.containers, use_cache).await;
 
     if let Some(init_containers) = &spec.initContainers {
         for container in init_containers {
-            spec.containers.insert(1, container.clone());
+            let mut new_container = container.clone();
+            new_container.init(use_cache).await;
+            spec.containers.insert(1, new_container);
         }
     }
-
-    *registry_containers = registry::get_registry_containers(use_cache, &spec.containers).await?;
-    Ok(())
 }
 
 pub fn get_container_mounts_and_storages(
@@ -257,38 +255,8 @@ pub fn get_container_mounts_and_storages(
     volumes: &Vec<volume::Volume>,
 ) {
     for volume in volumes {
-        agent_policy.get_container_mounts_and_storages(
-            policy_mounts,
-            storages,
-            container,
-            &volume,
-        );
+        agent_policy.get_container_mounts_and_storages(policy_mounts, storages, container, &volume);
     }
-}
-
-pub fn generate_policy(k8s_object: &dyn K8sResource, agent_policy: &policy::AgentPolicy) -> String {
-    let (registry_containers, yaml_containers) = k8s_object.get_containers();
-    let mut policy_containers = Vec::new();
-
-    for i in 0..yaml_containers.len() {
-        policy_containers.push(agent_policy.get_container_policy(
-            k8s_object,
-            &yaml_containers[i],
-            i == 0,
-            &registry_containers[i],
-        ));
-    }
-
-    let policy_data = policy::PolicyData {
-        containers: policy_containers,
-    };
-
-    let json_data = serde_json::to_string_pretty(&policy_data).unwrap();
-    let policy = agent_policy.rules.clone() + "\npolicy_data := " + &json_data;
-    if let Some(file_name) = &agent_policy.config.output_policy_file {
-        policy::export_decoded_policy(&policy, &file_name);
-    }
-    general_purpose::STANDARD.encode(policy.as_bytes())
 }
 
 pub fn add_policy_annotation(
