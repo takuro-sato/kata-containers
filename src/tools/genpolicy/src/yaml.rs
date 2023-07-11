@@ -30,6 +30,7 @@ use serde_yaml;
 use std::boxed;
 use std::collections::BTreeMap;
 use std::fs::read_to_string;
+use base64::{engine::general_purpose, Engine as _};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct YamlHeader {
