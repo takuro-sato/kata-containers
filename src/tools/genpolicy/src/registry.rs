@@ -9,6 +9,7 @@
 use crate::policy;
 
 use anyhow::{anyhow, Result};
+use docker_credential::{CredentialRetrievalError, DockerCredential};
 use log::warn;
 use log::{debug, info, LevelFilter};
 use oci_distribution::client::{linux_amd64_resolver, ClientConfig};
@@ -58,44 +59,55 @@ impl Container {
         info!("============================================");
         info!("Pulling manifest and config for {:?}", image);
         let reference: Reference = image.to_string().parse().unwrap();
+        let auth = build_auth(&reference);
+
         let mut client = Client::new(ClientConfig {
             platform_resolver: Some(Box::new(linux_amd64_resolver)),
             ..Default::default()
         });
 
-        let (manifest, digest_hash, config_layer_str) = client
-            .pull_manifest_and_config(&reference, &RegistryAuth::Anonymous)
-            .await
-            .unwrap();
+        match client.pull_manifest_and_config(&reference, &auth).await {
+            Ok((manifest, digest_hash, config_layer_str)) => {
+                debug!("digest_hash: {:?}", digest_hash);
+                debug!(
+                    "manifest: {}",
+                    serde_json::to_string_pretty(&manifest).unwrap()
+                );
 
-        debug!("digest_hash: {:?}", digest_hash);
-        debug!(
-            "manifest: {}",
-            serde_json::to_string_pretty(&manifest).unwrap()
-        );
+                // Log the contents of the config layer.
+                if log::max_level() >= LevelFilter::Debug {
+                    let mut deserializer = serde_json::Deserializer::from_str(&config_layer_str);
+                    let mut serializer = serde_json::Serializer::pretty(io::stderr());
+                    serde_transcode::transcode(&mut deserializer, &mut serializer).unwrap();
+                }
 
-        // Log the contents of the config layer.
-        if log::max_level() >= LevelFilter::Debug {
-            let mut deserializer = serde_json::Deserializer::from_str(&config_layer_str);
-            let mut serializer = serde_json::Serializer::pretty(io::stderr());
-            serde_transcode::transcode(&mut deserializer, &mut serializer).unwrap();
+                let config_layer: DockerConfigLayer =
+                    serde_json::from_str(&config_layer_str).unwrap();
+                let image_layers = get_image_layers(
+                    use_cached_files,
+                    &mut client,
+                    &reference,
+                    &manifest,
+                    &config_layer,
+                )
+                .await
+                .unwrap();
+
+                Ok(Container {
+                    config_layer,
+                    image_layers,
+                })
+            }
+            Err(oci_distribution::errors::OciDistributionError::AuthenticationFailure(message)) => {
+                panic!("Container image registry authentication failure ({}). Are docker credentials set-up for current user?", &message);
+            }
+            Err(e) => {
+                panic!(
+                    "Failed to pull container image manifest and config - error: {:#?}",
+                    &e
+                );
+            }
         }
-
-        let config_layer: DockerConfigLayer = serde_json::from_str(&config_layer_str).unwrap();
-        let image_layers = get_image_layers(
-            use_cached_files,
-            &mut client,
-            &reference,
-            &manifest,
-            &config_layer,
-        )
-        .await
-        .unwrap();
-
-        Ok(Container {
-            config_layer,
-            image_layers,
-        })
     }
 
     // Convert Docker image config to policy data.
@@ -260,6 +272,10 @@ async fn get_verity_hash(
     let mut verity_path = decompressed_path.clone();
     verity_path.set_extension("verity");
 
+    let mut verity_hash = "".to_string();
+    let mut error_message = "".to_string();
+    let mut error = false;
+
     if use_cached_files && verity_path.exists() {
         info!("Using cached file {:?}", &verity_path);
     } else if let Err(e) = create_verity_hash_file(
@@ -274,22 +290,36 @@ async fn get_verity_hash(
     )
     .await
     {
-        delete_files(&decompressed_path, &compressed_path, &verity_path);
-        panic!(
+        error = true;
+        error_message = format!(
             "Failed to create verity hash for {}, error {:?}",
             layer_digest, &e
         );
     }
 
-    match std::fs::read_to_string(&verity_path) {
-        Err(e) => {
-            delete_files(&decompressed_path, &compressed_path, &verity_path);
-            panic!("Failed to read {:?}, error {:?}", &verity_path, &e);
+    if !error {
+        match std::fs::read_to_string(&verity_path) {
+            Err(e) => {
+                error = true;
+                error_message = format!("Failed to read {:?}, error {:?}", &verity_path, &e);
+            }
+            Ok(v) => {
+                verity_hash = v;
+                info!("dm-verity root hash: {}", &verity_hash);
+            }
         }
-        Ok(v) => {
-            info!("dm-verity root hash: {}", &v);
-            return Ok(v);
-        }
+    }
+
+    if !use_cached_files {
+        let _ = std::fs::remove_dir_all(&base_dir);
+    } else if error {
+        delete_files(&decompressed_path, &compressed_path, &verity_path);
+    }
+
+    if error {
+        panic!("{}", &error_message);
+    } else {
+        Ok(verity_hash)
     }
 }
 
@@ -387,4 +417,45 @@ fn do_create_verity_hash_file(path: &Path, verity_path: &Path) -> Result<()> {
 
 pub async fn get_container(use_cache: bool, image: &str) -> Result<Container> {
     Container::new(use_cache, image).await
+}
+
+fn build_auth(reference: &Reference) -> RegistryAuth {
+    debug!("build_auth: {:?}", reference);
+
+    let server = reference
+        .resolve_registry()
+        .strip_suffix("/")
+        .unwrap_or_else(|| reference.resolve_registry());
+
+    match docker_credential::get_credential(server) {
+        Ok(DockerCredential::UsernamePassword(username, password)) => {
+            debug!("build_auth: Found docker credentials");
+            return RegistryAuth::Basic(username, password);
+        }
+        Ok(DockerCredential::IdentityToken(_)) => {
+            warn!("build_auth: Cannot use contents of docker config, identity token not supported. Using anonymous access.");
+        }
+        Err(CredentialRetrievalError::ConfigNotFound) => {
+            debug!("build_auth: Docker config not found - using anonymous access.");
+        }
+        Err(CredentialRetrievalError::NoCredentialConfigured) => {
+            debug!("build_auth: Docker credentials not configured - using anonymous access.");
+        }
+        Err(CredentialRetrievalError::ConfigReadError) => {
+            debug!("build_auth: Cannot read docker credentials - using anonymous access.");
+        }
+        Err(CredentialRetrievalError::HelperFailure { stdout, stderr }) => {
+            if stdout == "credentials not found in native keychain\n" {
+                // On WSL, this error is generated when credentials are not
+                // available in ~/.docker/config.json.
+                debug!("build_auth: Docker credentials not found - using anonymous access.");
+            } else {
+                warn!("build_auth: Docker credentials not found - using anonymous access. stderr = {}, stdout = {}",
+                    &stderr, &stdout);
+            }
+        }
+        Err(e) => panic!("Error handling docker configuration file: {}", e),
+    }
+
+    RegistryAuth::Anonymous
 }

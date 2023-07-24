@@ -79,6 +79,10 @@ pub struct PodSpec {
 /// See Reference / Kubernetes API / Workload Resources / Pod.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Container {
+    /// Container image registry information.
+    #[serde(skip)]
+    pub registry: registry::Container,
+
     pub name: String,
     pub image: String,
 
@@ -126,9 +130,6 @@ pub struct Container {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tty: Option<bool>,
-
-    #[serde(skip)]
-    pub registry: registry::Container,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowedCommands: Option<Vec<String>>,

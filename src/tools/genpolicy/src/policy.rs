@@ -18,7 +18,7 @@ use crate::utils;
 use crate::volume;
 use crate::yaml;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use log::debug;
 use log::info;
@@ -113,7 +113,7 @@ pub struct SerializedStorage {
     pub fstype: String,
     pub options: Vec<String>,
     pub mount_point: String,
-    pub fs_group: SerializedFsGroup,
+    pub fs_group: Option<SerializedFsGroup>,
 }
 
 // TODO: can struct FsGroup from agent.proto be used here?
@@ -211,6 +211,9 @@ impl AgentPolicy {
         let mut yaml_string = String::new();
         for i in 0..self.resources.len() {
             let policy = self.resources[i].generate_policy(self);
+            if self.config.base64_out {
+                println!("{}", policy);
+            }
             yaml_string += &self.resources[i].serialize(&policy);
         }
 
@@ -249,8 +252,8 @@ impl AgentPolicy {
 
         let json_data = serde_json::to_string_pretty(&policy_data).unwrap();
         let policy = self.rules.clone() + "\npolicy_data := " + &json_data;
-        if let Some(file_name) = &self.config.output_policy_file {
-            policy::export_decoded_policy(&policy, &file_name);
+        if self.config.raw_out {
+            policy::base64_out(&policy);
         }
         general_purpose::STANDARD.encode(policy.as_bytes())
     }
@@ -275,10 +278,17 @@ impl AgentPolicy {
             root = Some(policy_root);
         }
 
-        let mut annotations = BTreeMap::new();
-        infra::get_annotations(&mut annotations, infra_container);
+        let mut annotations = if let Some(mut a) = resource.get_annotations() {
+            yaml::remove_policy_annotation(&mut a);
+            a
+        } else {
+            BTreeMap::new()
+        };
+        infra::add_annotations(&mut annotations, infra_container);
         if let Some(name) = resource.get_sandbox_name() {
-            annotations.insert("io.kubernetes.cri.sandbox-name".to_string(), name);
+            annotations
+                .entry("io.kubernetes.cri.sandbox-name".to_string())
+                .or_insert(name);
         }
 
         if !is_pause_container {
@@ -286,7 +296,9 @@ impl AgentPolicy {
             if image_name.find(':').is_none() {
                 image_name += ":latest";
             }
-            annotations.insert("io.kubernetes.cri.image-name".to_string(), image_name);
+            annotations
+                .entry("io.kubernetes.cri.image-name".to_string())
+                .or_insert(image_name);
         }
 
         let namespace = resource.get_namespace();
@@ -296,10 +308,9 @@ impl AgentPolicy {
         );
 
         if !yaml_container.name.is_empty() {
-            annotations.insert(
-                "io.kubernetes.cri.container-name".to_string(),
-                yaml_container.name.to_string(),
-            );
+            annotations
+                .entry("io.kubernetes.cri.container-name".to_string())
+                .or_insert(yaml_container.name.clone());
         }
 
         if is_pause_container {
@@ -308,7 +319,9 @@ impl AgentPolicy {
                 network_namespace += "test";
             }
             network_namespace += "-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
-            annotations.insert("nerdctl/network-namespace".to_string(), network_namespace);
+            annotations
+                .entry("nerdctl/network-namespace".to_string())
+                .or_insert(network_namespace);
         }
 
         // Start with the Default Unix Spec from
@@ -324,6 +337,13 @@ impl AgentPolicy {
         yaml_container
             .registry
             .get_process(&mut process, yaml_has_command, yaml_has_args);
+
+        if let Some(tty) = yaml_container.tty {
+            process.terminal = tty;
+            if tty && !is_pause_container {
+                process.env.push("TERM=".to_string() + "xterm");
+            }
+        }
 
         if !is_pause_container {
             process.env.push("HOSTNAME=".to_string() + "$(host-name)");
@@ -436,10 +456,7 @@ fn get_image_layer_storages(
             fstype: "tar-overlay".to_string(),
             options: Vec::new(),
             mount_point: root_mount.path.clone(),
-            fs_group: SerializedFsGroup {
-                group_id: 0,
-                group_change_policy: 0,
-            },
+            fs_group: None,
         };
 
         // TODO: load this path from data.json.
@@ -478,10 +495,7 @@ fn get_image_layer_storages(
                 fstype: "tar".to_string(),
                 options,
                 mount_point: layers_path.clone() + &layer_name,
-                fs_group: SerializedFsGroup {
-                    group_id: 0,
-                    group_change_policy: 0,
-                },
+                fs_group: None,
             });
 
             let mut fs_opt_layer = "io.katacontainers.fs-opt.layer=".to_string();
@@ -523,17 +537,10 @@ fn name_to_hash(name: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// Creates a text file including the Rego rules and data.
-pub fn export_decoded_policy(policy: &str, file_name: &str) {
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .create(true)
-        .open(file_name)
-        .map_err(|e| anyhow!(e))
+pub fn base64_out(policy: &str) {
+    std::io::stdout()
+        .write_all(policy.as_bytes())
         .unwrap();
-    f.write_all(policy.as_bytes()).unwrap();
-    f.flush().map_err(|e| anyhow!(e)).unwrap();
 }
 
 fn substitute_env_variables(env: &mut Vec<String>) {
