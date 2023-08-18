@@ -156,7 +156,7 @@ pub fn new_k8s_resource(
                 }
             }
             // let cs = pod.spec.containers.clone();
-            for mut container in &mut pod.spec.containers {
+            for container in &mut pod.spec.containers {
                 if container_name_to_allowed_commands.contains_key(&container.name) {
                     container.allowedCommands = Some(container_name_to_allowed_commands[&container.name].clone())
                 }
