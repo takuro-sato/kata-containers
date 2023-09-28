@@ -21,8 +21,6 @@ use crate::yaml;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use log::debug;
-use log::info;
-use oci::*;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use sha2::{Digest, Sha256};
@@ -559,16 +557,6 @@ impl AgentPolicy {
         infra::get_linux(&mut linux, &infra_container.Linux);
 
         let exec_commands = yaml_container.get_exec_commands();
-
-        let terminal = yaml_container.tty.unwrap_or(false);
-        info!("Terminal value {:?}", terminal);
-        process.terminal = process.terminal || terminal;
-
-        // TODO: check if it has to be `process.terminal`
-        if terminal {
-            // TODO: handle other terminals
-            process.env.push("TERM=xterm".to_string());
-        }
 
         ContainerPolicy {
             OCI: KataSpec {
