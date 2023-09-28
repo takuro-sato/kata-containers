@@ -501,9 +501,27 @@ create_rootfs_image() {
 	fi
 
 	if [ "${KATA_BUILD_CC}" == "yes" ] && [ -b "${device}p2" ]; then
-		info "veritysetup format rootfs device: ${device}p1, hash device: ${device}p2"
+		setup_cmd="veritysetup format ${device}p1 ${device}p2"
+
+		case "${DM_VERITY_FORMAT}" in
+			veritysetup)
+				# Partition format compatible with "veritysetup open" but not with kernel's
+				# "dm-mod.create" command line parameter.
+				;;
+			kernelinit)
+				# Partition format compatible with kernel's "dm-mod.create" command line
+				# parameter but not with "veritysetup open".
+				setup_cmd+=" --no-superblock"
+				;;
+			*)
+				error "DM_VERITY_FORMAT(${DM_VERITY_FORMAT}) is incorrect (must be veritysetup or kernelinit)"
+				return 1
+				;;
+		esac
+
+		info "${setup_cmd}"
 		local image_dir=$(dirname "${image}")
-		veritysetup format "${device}p1" "${device}p2" > "${image_dir}"/root_hash.txt 2>&1
+		eval "${setup_cmd}" > "${image_dir}"/root_hash.txt 2>&1
 	fi
 
 	losetup -d "${device}"
@@ -660,8 +678,18 @@ main() {
 		create_rootfs_image "${rootfs}" "${image}" "${rootfs_img_size}" \
 						"${fs_type}" "${block_size}" "${agent_bin}"
 	fi
+
+	# Skip the insertion of the DAX header due to
+	# https://github.com/kata-containers/kata-containers/issues/7993
+
+	#info "Partition information before set_dax_header:"
+	#fdisk -lu "${image}"
+
 	# insert at the beginning of the image the MBR + DAX header
-	set_dax_header "${image}" "${img_size}" "${fs_type}" "${nsdax_bin}"
+	#set_dax_header "${image}" "${img_size}" "${fs_type}" "${nsdax_bin}"
+
+	#info "Partition information after set_dax_header:"
+	#fdisk -lu "${image}"
 }
 
 main "$@"

@@ -73,7 +73,13 @@ const (
 	// Values based on:
 	clhTimeout                     = 10
 	clhAPITimeout                  = 1
-	clhAPITimeoutConfidentialGuest = 40
+
+	// TODO: reduce the SEV-SNP Guest boot time.
+	//
+	// This larger timeout allows a few pods to start in parallel
+	// successfully, on a single Host.
+	clhAPITimeoutConfidentialGuest = 300
+
 	// Timeout for hot-plug - hotplug devices can take more time, than usual API calls
 	// Use longer time timeout for it.
 	clhHotPlugAPITimeout                   = 5
@@ -83,6 +89,7 @@ const (
 	clhAPISocket                           = "clh-api.sock"
 	virtioFsSocket                         = "virtiofsd.sock"
 	defaultClhPath                         = "/usr/local/bin/cloud-hypervisor"
+	snpZeroHostData                        = "0000000000000000000000000000000000000000000000000000000000000000"
 )
 
 // Interface that hides the implementation of openAPI client
@@ -405,9 +412,21 @@ func (clh *cloudHypervisor) nydusdAPISocketPath(id string) (string, error) {
 }
 
 func (clh *cloudHypervisor) enableProtection() error {
-	protection, err := availableGuestProtection()
-	if err != nil {
-		return err
+
+	protection := noneProtection
+
+	// SNP protection explicitly requested by config
+	if clh.config.SevSnpGuest {
+		clh.Logger().WithField("function", "enableProtection").Info("SEVSNPGUEST")
+		protection = snpProtection
+	} else {
+		clh.Logger().WithField("function", "enableProtection").Info("NOSEVSNPGUEST")
+		// protection method not explicitly requested, using available method
+		availableProtection, err := availableGuestProtection()
+		if err != nil {
+			return err
+		}
+		protection = availableProtection
 	}
 
 	switch protection {
@@ -432,8 +451,21 @@ func (clh *cloudHypervisor) enableProtection() error {
 
 	case sevProtection:
 		return errors.New("SEV protection is not supported by Cloud Hypervisor")
+
 	case snpProtection:
-		return errors.New("SEV-SNP protection is not supported by Cloud Hypervisor")
+		if clh.vmconfig.Platform == nil {
+			clh.vmconfig.Platform = chclient.NewPlatformConfig()
+		}
+		clh.vmconfig.Platform.SetSnp(true)
+
+		if len(clh.config.PolicyHash) > 0 {
+			clh.vmconfig.Payload.SetHostData(clh.config.PolicyHash)
+		} else {
+			clh.vmconfig.Payload.SetHostData(snpZeroHostData)
+		}
+
+		clh.vmconfig.Platform.SetNumPciSegments(10)
+		return nil
 
 	default:
 		return nil
@@ -485,23 +517,27 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 	if err != nil {
 		return err
 	}
-	clh.vmconfig.Payload.SetIgvm(igvmPath)
 
 	// Make sure the kernel path is valid if no igvm set
 	if igvmPath == "" {
+		if clh.config.ConfidentialGuest {
+			return errors.New("igvm must be set with confidential_guest")
+		}
 		kernelPath, err := clh.config.KernelAssetPath()
 		if err != nil {
 			return err
 		}
 		clh.vmconfig.Payload.SetKernel(kernelPath)
+	} else {
+		if !clh.config.ConfidentialGuest {
+			return errors.New("igvm can only be set with confidential_guest")
+		}
+		clh.vmconfig.Payload.SetIgvm(igvmPath)
 	}
 
 	if clh.config.ConfidentialGuest {
 		if err := clh.enableProtection(); err != nil {
 			return err
-		}
-		if igvmPath == "" {
-			return errors.New("igvm must be set with confidential_guest")
 		}
 	}
 
@@ -580,8 +616,8 @@ func (clh *cloudHypervisor) CreateVM(ctx context.Context, id string, network Net
 				clh.vmconfig.Pmem = &[]chclient.PmemConfig{*pmem}
 			}
 		}
-	} 
-	
+	}
+
 	initrdPath, err := clh.config.InitrdAssetPath()
 	if err != nil {
 		return err
@@ -709,7 +745,13 @@ func (clh *cloudHypervisor) StartVM(ctx context.Context, timeout int) error {
 	}
 	clh.state.PID = pid
 
-	ctx, cancel := context.WithTimeout(context.Background(), clh.getClhAPITimeout()*time.Second)
+	bootvm_timeout := clh.getClhAPITimeout()
+	// TODO: review this 10 second minimum timeout value.
+	if bootvm_timeout < 10 {
+		bootvm_timeout = 10
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), bootvm_timeout*time.Second)
 	defer cancel()
 
 	if err := clh.bootVM(ctx); err != nil {
@@ -811,7 +853,17 @@ func clhDriveIndexToID(i int) string {
 // assumption convert a clh PciDeviceInfo into a PCI path
 func clhPciInfoToPath(pciInfo chclient.PciDeviceInfo) (types.PciPath, error) {
 	tokens := strings.Split(pciInfo.Bdf, ":")
-	if len(tokens) != 3 || tokens[0] != "0000" || tokens[1] != "00" {
+	if len(tokens) != 3 || tokens[1] != "00" {
+		return types.PciPath{}, fmt.Errorf("Unexpected PCI address %q from clh hotplug", pciInfo.Bdf)
+	}
+
+	// Support up to 10 PCI segments.
+	pciSegment, err := regexp.Compile(`^000[0-9]$`)
+	if err != nil {
+		return types.PciPath{}, fmt.Errorf("Internal error: cannot compile PCI segment regex")
+	}
+
+	if !pciSegment.MatchString(tokens[0]) {
 		return types.PciPath{}, fmt.Errorf("Unexpected PCI address %q from clh hotplug", pciInfo.Bdf)
 	}
 
@@ -859,6 +911,10 @@ func (clh *cloudHypervisor) hotplugAddBlockDevice(drive *config.BlockDrive) erro
 	if diskRateLimiterConfig != nil {
 		clhDisk.SetRateLimiterConfig(*diskRateLimiterConfig)
 	}
+
+	// Hotplug block devices on PCI segments >= 1. PCI segment 0 is used
+	// for the network interface, any disks present at Guest boot time, etc.
+	clhDisk.SetPciSegment(int32(drive.Index) / 32 + 1)
 
 	pciInfo, _, err := cl.VmAddDiskPut(ctx, clhDisk)
 
