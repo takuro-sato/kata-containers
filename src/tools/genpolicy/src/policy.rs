@@ -269,6 +269,12 @@ pub struct PersistentVolumeClaimVolume {
     pub mount_source: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ContainerExecCommands {
+    pub containerName: String,
+    pub execCommands: Vec<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CreateContainerRequestDefaults {
     /// Allow env variables that match any of these regexes.

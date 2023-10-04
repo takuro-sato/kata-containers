@@ -130,6 +130,9 @@ pub struct Container {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tty: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowedCommands: Option<Vec<String>>,
 }
 
 /// See Reference / Kubernetes API / Workload Resources / Pod.
@@ -546,6 +549,11 @@ impl Container {
                 if let Some(exec) = &preStop.exec {
                     commands.push(exec.command.join(" "));
                 }
+            }
+        }
+        if let Some(allowedCommands) = &self.allowedCommands {
+            for command in allowedCommands {
+                commands.push(command.clone());
             }
         }
 
